@@ -119,7 +119,7 @@ const VehicleList = ({
                   <div className="w-16 h-12 bg-surface-secondary rounded-base overflow-hidden flex-shrink-0">
                     <Image
                       src={vehicle.image}
-                      alt={`${vehicle.make} ${vehicle.model}`}
+                      alt={`${vehicle.brand} ${vehicle.model}`}
                       className="w-full h-full object-cover"
                     />
                   </div>
@@ -127,7 +127,7 @@ const VehicleList = ({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
                       <h3 className="font-semibold text-text-primary truncate">
-                        {vehicle.licensePlate}
+                        {vehicle.registration}
                       </h3>
                       <span className={`status-indicator ${getStatusColor(vehicle.status)}`}>
                         {getStatusText(vehicle.status)}
@@ -135,13 +135,13 @@ const VehicleList = ({
                     </div>
 
                     <p className="text-sm text-text-secondary mb-2 truncate">
-                      {vehicle.make} {vehicle.model} ({vehicle.year})
+                      {vehicle.brand} {vehicle.model} ({vehicle.year})
                     </p>
 
                     <div className="flex items-center space-x-1 mb-2">
                       <Icon name="MapPin" size={12} className="text-text-tertiary" />
                       <span className="text-xs text-text-secondary truncate">
-                        {vehicle.location}
+                        {vehicle.location || 'Localisation non disponible'}
                       </span>
                     </div>
 
@@ -158,36 +158,36 @@ const VehicleList = ({
                     <div className="flex items-center space-x-3">
                       <div className="flex items-center space-x-1" title="GPS">
                         <Icon 
-                          name={getDeviceStatusIcon(vehicle.devices.gps)} 
+                          name={getDeviceStatusIcon(vehicle.devices?.gps || { status: 'offline' })} 
                           size={12} 
-                          className={getDeviceStatusColor(vehicle.devices.gps)}
+                          className={getDeviceStatusColor(vehicle.devices?.gps || { status: 'offline' })}
                         />
                         <span className="text-xs text-text-tertiary">GPS</span>
                       </div>
                       
                       <div className="flex items-center space-x-1" title="ADAS">
                         <Icon 
-                          name={getDeviceStatusIcon(vehicle.devices.adas)} 
+                          name={getDeviceStatusIcon(vehicle.devices?.adas || { status: 'offline' })} 
                           size={12} 
-                          className={getDeviceStatusColor(vehicle.devices.adas)}
+                          className={getDeviceStatusColor(vehicle.devices?.adas || { status: 'offline' })}
                         />
                         <span className="text-xs text-text-tertiary">ADAS</span>
                       </div>
                       
                       <div className="flex items-center space-x-1" title="DMS">
                         <Icon 
-                          name={getDeviceStatusIcon(vehicle.devices.dms)} 
+                          name={getDeviceStatusIcon(vehicle.devices?.dms || { status: 'offline' })} 
                           size={12} 
-                          className={getDeviceStatusColor(vehicle.devices.dms)}
+                          className={getDeviceStatusColor(vehicle.devices?.dms || { status: 'offline' })}
                         />
                         <span className="text-xs text-text-tertiary">DMS</span>
                       </div>
                       
                       <div className="flex items-center space-x-1" title="Caméra">
                         <Icon 
-                          name={getDeviceStatusIcon(vehicle.devices.camera)} 
+                          name={getDeviceStatusIcon(vehicle.devices?.camera || { status: 'offline' })} 
                           size={12} 
-                          className={getDeviceStatusColor(vehicle.devices.camera)}
+                          className={getDeviceStatusColor(vehicle.devices?.camera || { status: 'offline' })}
                         />
                         <span className="text-xs text-text-tertiary">CAM</span>
                       </div>

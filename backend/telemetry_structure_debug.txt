@@ -1,0 +1,10 @@
+Field	Type	Null	Key	Default	Extra
+id	int	NO	PRI	NULL	auto_increment
+vehicle_id	int	NO	MUL	NULL	
+driver_id	int	YES	MUL	NULL	
+timestamp	datetime	YES	MUL	NULL	
+latitude	decimal(10,7)	YES		NULL	
+longitude	decimal(10,7)	YES		NULL	
+speed	float	YES		NULL	
+fuel_level	float	YES		NULL	
+temperature	float	YES		NULL	

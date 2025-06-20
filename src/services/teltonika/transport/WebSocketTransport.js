@@ -21,6 +21,16 @@ class TeltonikaWebSocket extends EventEmitter {
     
     return new Promise((resolve, reject) => {
       try {
+        // Close existing connection if any
+        if (this.ws) {
+          try {
+            this.ws.close(1000, 'Reconnecting');
+          } catch (error) {
+            console.warn('Error closing existing WebSocket:', error);
+          }
+          this.ws = null;
+        }
+        
         this.ws = new WebSocket(this.config.serverUrl, ['teltonika-gps']);
         
         this.ws.binaryType = 'arraybuffer';
@@ -48,6 +58,12 @@ class TeltonikaWebSocket extends EventEmitter {
 
         this.ws.onerror = (error) => {
           this.isConnecting = false;
+          
+          // Check for runtime.lastError
+          if (error && error.message && error.message.includes('runtime.lastError')) {
+            console.warn('Runtime.lastError detected - this may be a browser extension issue');
+          }
+          
           this.emit('error', {
             type: 'websocket_error',
             message: 'WebSocket connection error',
@@ -75,7 +91,13 @@ class TeltonikaWebSocket extends EventEmitter {
   disconnect() {
     this.stopPingInterval();
     if (this.ws) {
-      this.ws.close(1000, 'Client disconnect');
+      try {
+        if (this.ws.readyState === WebSocket.OPEN) {
+          this.ws.close(1000, 'Client disconnect');
+        }
+      } catch (error) {
+        console.warn('Error closing WebSocket:', error);
+      }
       this.ws = null;
     }
   }

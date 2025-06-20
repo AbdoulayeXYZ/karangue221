@@ -1,167 +1,416 @@
-// src/services/teltonika/TeltonikaService.js
-
-import { TeltonikaCodec8Extended } from './codecs/Codec8Extended';
-import { TeltonikaWebSocket } from './transport/WebSocketTransport';
 import { EventEmitter } from '../utils/EventEmitter';
 
-class TeltonikaService extends EventEmitter {
-  constructor(config = {}) {
-    super();
-    this.config = {
-      serverUrl: config.serverUrl || 'ws://gps.karangue.sn:8080',
-      reconnectInterval: config.reconnectInterval || 5000,
-      maxReconnectAttempts: config.maxReconnectAttempts || 10,
-      heartbeatInterval: config.heartbeatInterval || 30000,
-      ...config
-    };
+/**
+ * TeltonikaService - Service for handling real-time telemetry data via WebSocket
+ * 
+ * This service manages the connection to the Teltonika tracking server and provides
+ * real-time updates for vehicle locations, telemetry, and events.
+ */
+class TeltonikaService {
+  constructor() {
+    // Initialize event emitter for publishing events to subscribers
+    this.events = new EventEmitter();
     
-    this.codec = new TeltonikaCodec8Extended();
-    this.transport = new TeltonikaWebSocket(this.config);
-    this.isConnected = false;
-    this.devices = new Map();
+    // WebSocket connection
+    this.socket = null;
+    
+    // Connection state
+    this.connected = false;
+    this.connecting = false;
     this.reconnectAttempts = 0;
-    this.heartbeatTimer = null;
+    this.maxReconnectAttempts = 10;
+    this.reconnectDelay = 2000; // Start with 2 seconds
+    this.reconnectTimeout = null;
     
-    this.setupEventHandlers();
-  }
-
-  setupEventHandlers() {
-    this.transport.on('connected', () => {
-      this.isConnected = true;
-      this.reconnectAttempts = 0;
-      this.startHeartbeat();
-      this.emit('connected');
-    });
-
-    this.transport.on('disconnected', () => {
-      this.isConnected = false;
-      this.stopHeartbeat();
-      this.emit('disconnected');
-      this.handleReconnection();
-    });
-
-    this.transport.on('data', (data) => {
-      this.handleIncomingData(data);
-    });
-
-    this.transport.on('error', (error) => {
-      this.emit('error', error);
-    });
-  }
-
-  async connect() {
-    try {
-      await this.transport.connect();
-    } catch (error) {
-      this.emit('error', error);
-      throw error;
-    }
-  }
-
-  disconnect() {
-    this.stopHeartbeat();
-    this.transport.disconnect();
-  }
-
-  handleIncomingData(rawData) {
-    try {
-      const parsedData = this.codec.decode(rawData);
-      
-      if (parsedData) {
-        this.processDeviceData(parsedData);
-        this.emit('data', parsedData);
-      }
-    } catch (error) {
-      this.emit('parseError', { error, rawData });
-    }
-  }
-
-  processDeviceData(data) {
-    const { imei, records } = data;
+    // Store for latest telemetry data by vehicle ID
+    this.telemetryData = new Map();
     
-    if (!this.devices.has(imei)) {
-      this.devices.set(imei, {
-        imei,
-        lastSeen: new Date(),
-        recordCount: 0,
-        status: 'active'
-      });
-      this.emit('deviceConnected', { imei });
-    }
-
-    const device = this.devices.get(imei);
-    device.lastSeen = new Date();
-    device.recordCount += records?.length || 0;
-    device.lastData = data;
-
-    // Process each GPS record
-    records?.forEach(record => {
-      this.emit('locationUpdate', {
-        imei,
-        record,
-        device
-      });
-    });
-
-    // Send acknowledgment
-    this.sendAcknowledgment(records?.length || 0);
-  }
-
-  sendAcknowledgment(recordCount) {
-    const ackData = this.codec.createAcknowledgment(recordCount);
-    this.transport.send(ackData);
-  }
-
-  sendCommand(imei, command) {
-    const commandData = this.codec.encodeCommand(imei, command);
-    return this.transport.send(commandData);
-  }
-
-  startHeartbeat() {
-    this.heartbeatTimer = setInterval(() => {
-      if (this.isConnected) {
-        this.transport.ping();
-      }
-    }, this.config.heartbeatInterval);
-  }
-
-  stopHeartbeat() {
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
-  }
-
-  handleReconnection() {
-    if (this.reconnectAttempts < this.config.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      
-      setTimeout(() => {
-        this.emit('reconnecting', { attempt: this.reconnectAttempts });
-        this.connect().catch(() => {
-          // Retry logic handled by recursive calls
-        });
-      }, this.config.reconnectInterval * this.reconnectAttempts);
-    } else {
-      this.emit('maxReconnectAttemptsReached');
-    }
-  }
-
-  getDevices() {
-    return Array.from(this.devices.values());
-  }
-
-  getDevice(imei) {
-    return this.devices.get(imei);
-  }
-
-  getConnectionStatus() {
-    return {
-      connected: this.isConnected,
-      deviceCount: this.devices.size,
-      reconnectAttempts: this.reconnectAttempts
+    // Data subscription types
+    this.subscriptionTypes = {
+      LOCATION: 'location',
+      TELEMETRY: 'telemetry',
+      EVENTS: 'events',
+      ALL: 'all'
     };
+    
+    // Active subscriptions by type
+    this.activeSubscriptions = new Set();
+    
+    // Authentication token
+    this.authToken = null;
+  }
+  
+  /**
+   * Initialize the service and connect to the WebSocket server
+   * @param {string} token - Authentication token
+   * @param {string} baseUrl - WebSocket server URL (optional, defaults to environment variable)
+   * @returns {Promise} Resolves when connected
+   */
+  initialize(token, baseUrl) {
+    this.authToken = token;
+    this.baseUrl = baseUrl || process.env.REACT_APP_WS_URL || `ws://${window.location.host}/api/ws`;
+    
+    return this.connect();
+  }
+  
+  /**
+   * Connect to the WebSocket server
+   * @returns {Promise} Resolves when connected
+   */
+  connect() {
+    if (this.connected || this.connecting) {
+      return Promise.resolve();
+    }
+    
+    this.connecting = true;
+    
+    return new Promise((resolve, reject) => {
+      try {
+        // Close existing socket if any
+        if (this.socket) {
+          try {
+            this.socket.close(1000, 'Reconnecting');
+          } catch (error) {
+            console.warn('Error closing existing WebSocket:', error);
+          }
+          this.socket = null;
+        }
+        
+        // Create new WebSocket connection
+        const wsUrl = `${this.baseUrl}?token=${this.authToken}`;
+        this.socket = new WebSocket(wsUrl);
+        
+        // Setup event handlers
+        this.socket.onopen = () => {
+          console.log('WebSocket connection established');
+          this.connected = true;
+          this.connecting = false;
+          this.reconnectAttempts = 0;
+          this.reconnectDelay = 2000; // Reset delay
+          
+          // Resubscribe to active subscriptions
+          this.resubscribe();
+          
+          // Resolve the promise
+          resolve();
+          
+          // Emit connection event
+          this.events.emit('connected');
+        };
+        
+        this.socket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            this.handleMessage(data);
+          } catch (error) {
+            console.error('Error parsing WebSocket message:', error);
+          }
+        };
+        
+        this.socket.onerror = (error) => {
+          console.error('WebSocket error:', error);
+          
+          // Check for runtime.lastError
+          if (error && error.message && error.message.includes('runtime.lastError')) {
+            console.warn('Runtime.lastError detected - this may be a browser extension issue');
+          }
+          
+          this.events.emit('error', error);
+          
+          if (this.connecting) {
+            reject(error);
+            this.connecting = false;
+          }
+        };
+        
+        this.socket.onclose = (event) => {
+          console.log(`WebSocket connection closed: ${event.code} ${event.reason}`);
+          this.connected = false;
+          this.connecting = false;
+          
+          // Emit disconnected event
+          this.events.emit('disconnected', event);
+          
+          // Attempt to reconnect if not explicitly closed by user
+          if (!event.wasClean) {
+            this.scheduleReconnect();
+          }
+        };
+      } catch (error) {
+        console.error('Error creating WebSocket connection:', error);
+        this.connecting = false;
+        reject(error);
+        this.scheduleReconnect();
+      }
+    });
+  }
+  
+  /**
+   * Schedule a reconnection attempt
+   */
+  scheduleReconnect() {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+    }
+    
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      // Exponential backoff
+      const delay = Math.min(30000, this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts));
+      
+      console.log(`Scheduling reconnect attempt ${this.reconnectAttempts + 1} in ${delay}ms`);
+      
+      this.reconnectTimeout = setTimeout(() => {
+        this.reconnectAttempts++;
+        this.events.emit('reconnecting', this.reconnectAttempts);
+        this.connect().catch(() => {
+          // Failed to reconnect, will be handled by scheduleReconnect in onclose
+        });
+      }, delay);
+    } else {
+      console.error(`Maximum reconnection attempts (${this.maxReconnectAttempts}) reached`);
+      this.events.emit('reconnect_failed');
+    }
+  }
+  
+  /**
+   * Disconnect from the WebSocket server
+   */
+  disconnect() {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    
+    if (this.socket) {
+      this.socket.close(1000, 'Client disconnecting');
+      this.socket = null;
+    }
+    
+    this.connected = false;
+    this.connecting = false;
+    this.activeSubscriptions.clear();
+  }
+  
+  /**
+   * Handle incoming WebSocket messages
+   * @param {Object} data - Message data
+   */
+  handleMessage(data) {
+    if (!data || !data.type) {
+      console.warn('Received invalid WebSocket message:', data);
+      return;
+    }
+    
+    switch (data.type) {
+      case 'auth_success':
+        console.log('Authentication successful');
+        break;
+        
+      case 'auth_error':
+        console.error('Authentication failed:', data.message);
+        this.events.emit('auth_error', data.message);
+        break;
+        
+      case 'location_update':
+        this.handleLocationUpdate(data.vehicles);
+        break;
+        
+      case 'telemetry_update':
+        this.handleTelemetryUpdate(data.vehicles);
+        break;
+        
+      case 'event':
+        this.handleEvent(data.event);
+        break;
+        
+      case 'error':
+        console.error('Server error:', data.message);
+        this.events.emit('server_error', data.message);
+        break;
+        
+      default:
+        console.warn('Unknown message type:', data.type);
+    }
+  }
+  
+  /**
+   * Handle location updates for vehicles
+   * @param {Array} vehicles - Array of vehicle location data
+   */
+  handleLocationUpdate(vehicles) {
+    if (!Array.isArray(vehicles)) return;
+    
+    vehicles.forEach(vehicle => {
+      // Update stored telemetry data
+      const existingData = this.telemetryData.get(vehicle.id) || {};
+      this.telemetryData.set(vehicle.id, {
+        ...existingData,
+        location: vehicle.location,
+        speed: vehicle.speed,
+        heading: vehicle.heading,
+        lastUpdate: new Date()
+      });
+    });
+    
+    // Emit event for subscribers
+    this.events.emit('location_update', vehicles);
+  }
+  
+  /**
+   * Handle telemetry updates for vehicles
+   * @param {Array} vehicles - Array of vehicle telemetry data
+   */
+  handleTelemetryUpdate(vehicles) {
+    if (!Array.isArray(vehicles)) return;
+    
+    vehicles.forEach(vehicle => {
+      // Update stored telemetry data
+      const existingData = this.telemetryData.get(vehicle.id) || {};
+      this.telemetryData.set(vehicle.id, {
+        ...existingData,
+        ...vehicle.telemetry,
+        lastUpdate: new Date()
+      });
+    });
+    
+    // Emit event for subscribers
+    this.events.emit('telemetry_update', vehicles);
+  }
+  
+  /**
+   * Handle events from vehicles
+   * @param {Object} event - Event data
+   */
+  handleEvent(event) {
+    // Emit event for subscribers
+    this.events.emit('vehicle_event', event);
+  }
+  
+  /**
+   * Send a message to the WebSocket server
+   * @param {Object} message - Message to send
+   * @returns {boolean} Success status
+   */
+  sendMessage(message) {
+    if (!this.connected || !this.socket) {
+      console.error('Cannot send message: WebSocket not connected');
+      return false;
+    }
+    
+    try {
+      this.socket.send(JSON.stringify(message));
+      return true;
+    } catch (error) {
+      console.error('Error sending WebSocket message:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Subscribe to real-time updates for specific vehicles
+   * @param {string} type - Subscription type (location, telemetry, events, all)
+   * @param {Array} vehicleIds - Array of vehicle IDs to subscribe to (optional, if not provided subscribes to all)
+   * @returns {boolean} Success status
+   */
+  subscribe(type, vehicleIds = []) {
+    if (!this.subscriptionTypes[type.toUpperCase()]) {
+      console.error(`Invalid subscription type: ${type}`);
+      return false;
+    }
+    
+    const subscriptionType = this.subscriptionTypes[type.toUpperCase()];
+    this.activeSubscriptions.add(subscriptionType);
+    
+    return this.sendMessage({
+      action: 'subscribe',
+      type: subscriptionType,
+      vehicleIds: vehicleIds
+    });
+  }
+  
+  /**
+   * Unsubscribe from real-time updates for specific vehicles
+   * @param {string} type - Subscription type (location, telemetry, events, all)
+   * @param {Array} vehicleIds - Array of vehicle IDs to unsubscribe from (optional, if not provided unsubscribes from all)
+   * @returns {boolean} Success status
+   */
+  unsubscribe(type, vehicleIds = []) {
+    if (!this.subscriptionTypes[type.toUpperCase()]) {
+      console.error(`Invalid subscription type: ${type}`);
+      return false;
+    }
+    
+    const subscriptionType = this.subscriptionTypes[type.toUpperCase()];
+    this.activeSubscriptions.delete(subscriptionType);
+    
+    return this.sendMessage({
+      action: 'unsubscribe',
+      type: subscriptionType,
+      vehicleIds: vehicleIds
+    });
+  }
+  
+  /**
+   * Resubscribe to all active subscriptions (used after reconnection)
+   */
+  resubscribe() {
+    this.activeSubscriptions.forEach(type => {
+      this.sendMessage({
+        action: 'subscribe',
+        type: type
+      });
+    });
+  }
+  
+  /**
+   * Get the latest telemetry data for a specific vehicle
+   * @param {string} vehicleId - Vehicle ID
+   * @returns {Object|null} Vehicle telemetry data or null if not available
+   */
+  getVehicleTelemetry(vehicleId) {
+    return this.telemetryData.get(vehicleId) || null;
+  }
+  
+  /**
+   * Get the latest telemetry data for all vehicles
+   * @returns {Array} Array of vehicle telemetry data
+   */
+  getAllVehiclesTelemetry() {
+    const result = [];
+    this.telemetryData.forEach((data, id) => {
+      result.push({ id, ...data });
+    });
+    return result;
+  }
+  
+  /**
+   * Register an event listener
+   * @param {string} event - Event name
+   * @param {Function} callback - Callback function
+   */
+  on(event, callback) {
+    this.events.on(event, callback);
+  }
+  
+  /**
+   * Remove an event listener
+   * @param {string} event - Event name
+   * @param {Function} callback - Callback function
+   */
+  off(event, callback) {
+    this.events.off(event, callback);
+  }
+  
+  /**
+   * Check if the WebSocket is connected
+   * @returns {boolean} Connection status
+   */
+  isConnected() {
+    return this.connected;
   }
 }
 
-export default TeltonikaService;
+// Create a singleton instance
+const teltonikaService = new TeltonikaService();
+
+export default teltonikaService;

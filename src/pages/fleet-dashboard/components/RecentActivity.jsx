@@ -1,16 +1,51 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import Icon from 'components/AppIcon';
 
 const RecentActivity = ({ activities = [], loading, timeRange, vehicleStatus, selectedDriver }) => {
   const [filter, setFilter] = useState('all');
 
-  // Filtrage dynamique selon les props
-  const filteredActivities = activities.filter(activity => {
+  // Fonction de filtrage optimisée avec useCallback
+  const filterActivity = useCallback((activity) => {
     if (filter !== 'all' && activity.severity !== filter) return false;
     if (selectedDriver !== 'all' && activity.driver !== selectedDriver) return false;
-    // Optionnel : filtrer par période/timeRange si les timestamps sont exploitables
+    
+    // Filtrage par période (timeRange)
+    if (timeRange !== 'all') {
+      const activityDate = new Date(activity.timestamp);
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      
+      switch (timeRange) {
+        case 'today':
+          if (activityDate < today) return false;
+          break;
+        case 'yesterday':
+          const yesterday = new Date(today);
+          yesterday.setDate(yesterday.getDate() - 1);
+          if (activityDate < yesterday || activityDate >= today) return false;
+          break;
+        case 'week':
+          const lastWeek = new Date(today);
+          lastWeek.setDate(lastWeek.getDate() - 7);
+          if (activityDate < lastWeek) return false;
+          break;
+        case 'month':
+          const lastMonth = new Date(today);
+          lastMonth.setMonth(lastMonth.getMonth() - 1);
+          if (activityDate < lastMonth) return false;
+          break;
+        default:
+          break;
+      }
+    }
+    
     return true;
-  });
+  }, [filter, selectedDriver, timeRange]);
+
+  // Filtrage avec useMemo pour éviter les recalculs inutiles lors des mises à jour fréquentes
+  const filteredActivities = useMemo(() => {
+    return activities.filter(filterActivity);
+  }, [activities, filterActivity]);
 
   const getActivityIcon = (type) => {
     switch (type) {
@@ -116,6 +151,14 @@ const RecentActivity = ({ activities = [], loading, timeRange, vehicleStatus, se
         {loading && (
           <div className="w-4 h-4 border-2 border-secondary border-t-transparent rounded-full animate-spin"></div>
         )}
+      </div>
+      
+      {/* Badge de temps réel si les activités sont en temps réel */}
+      <div className="text-xs text-text-secondary mb-2">
+        <span className="inline-flex items-center space-x-1">
+          <Icon name="RefreshCw" size={12} className={loading ? "animate-spin" : ""} />
+          <span>Les activités sont actualisées en temps réel</span>
+        </span>
       </div>
       {/* Activity Feed */}
       <div className="space-y-3 max-h-96 overflow-y-auto">

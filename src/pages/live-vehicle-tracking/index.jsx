@@ -1,14 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Icon from 'components/AppIcon';
 import Breadcrumb from 'components/ui/Breadcrumb';
 import VehicleSelector from './components/VehicleSelector';
 import MapView from './components/MapView';
 import TelemetryPanel from './components/TelemetryPanel';
-import TeltonikaConnectionStatus from './components/TeltonikaConnectionStatus';
-import useApiResource from 'hooks/useApiResource';
-import * as vehicleApi from 'services/api/vehicles';
-import * as telemetryApi from 'services/api/telemetry';
-import * as driverApi from 'services/api/drivers';
+import ConnectionStatus from './components/ConnectionStatus';
+import useTeltonika from 'hooks/useTeltonika';
+import { useAuth } from 'contexts/AuthContext';
+import Spinner from 'components/ui/Spinner';
 
 const LiveVehicleTracking = () => {
   const [selectedVehicle, setSelectedVehicle] = useState(null);
@@ -16,29 +15,64 @@ const LiveVehicleTracking = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [mapMode, setMapMode] = useState('satellite');
   const [isPlaybackMode, setIsPlaybackMode] = useState(false);
+  const [liveEvents, setLiveEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
 
-  // Données dynamiques
-  const { data: vehicles = [], loading: loadingVehicles } = useApiResource({ getAll: vehicleApi.getVehicles });
-  const { data: telemetry = [], loading: loadingTelemetry } = useApiResource({ getAll: telemetryApi.getTelemetry });
-  const { data: drivers = [], loading: loadingDrivers } = useApiResource({ getAll: driverApi.getDrivers });
+  // Utilisation du hook WebSocket pour les données en temps réel
+  const teltonika = useTeltonika({
+    token: user?.token,
+    autoConnect: true,
+    autoSubscribe: true
+  });
 
-  // Sélection par défaut
-  React.useEffect(() => {
-    if (vehicles.length > 0 && !selectedVehicle) {
-      setSelectedVehicle(vehicles[0]);
+  // Gérer l'état de chargement global
+  useEffect(() => {
+    const isLoading = teltonika.isConnecting || 
+                      (!teltonika.isConnected && !teltonika.error) || 
+                      teltonika.isReconnecting;
+    setLoading(isLoading);
+  }, [teltonika.isConnecting, teltonika.isConnected, teltonika.isReconnecting, teltonika.error]);
+
+  // Gérer les événements du véhicule
+  useEffect(() => {
+    if (teltonika.events && teltonika.events.length > 0) {
+      // Transformer les événements pour inclure plus d'informations utiles
+      const formattedEvents = teltonika.events.map(event => ({
+        ...event,
+        formattedTime: new Date(event.timestamp).toLocaleTimeString('fr-FR'),
+        formattedDate: new Date(event.timestamp).toLocaleDateString('fr-FR'),
+        severity: event.severity || 'info'
+      }));
+      setLiveEvents(formattedEvents);
     }
-  }, [vehicles]);
+  }, [teltonika.events]);
 
-  // Recherche
-  const filteredVehicles = vehicles.filter(vehicle =>
+  // Sélection par défaut du premier véhicule et mise à jour si le véhicule sélectionné change
+  useEffect(() => {
+    if (teltonika.vehicles.length > 0) {
+      if (!selectedVehicle) {
+        // Premier chargement - sélectionner le premier véhicule
+        setSelectedVehicle(teltonika.vehicles[0]);
+      } else {
+        // Mettre à jour le véhicule sélectionné avec les données les plus récentes
+        const updatedVehicle = teltonika.vehicles.find(v => v.id === selectedVehicle.id);
+        if (updatedVehicle && JSON.stringify(updatedVehicle) !== JSON.stringify(selectedVehicle)) {
+          setSelectedVehicle(updatedVehicle);
+        }
+      }
+    }
+  }, [teltonika.vehicles, selectedVehicle]);
+  // Recherche de véhicules
+  const filteredVehicles = teltonika.vehicles.filter(vehicle =>
     vehicle.plateNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     vehicle.driverName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     vehicle.id?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Statistiques d'état
+  // Statistiques d'état des véhicules
   const getStatusStats = () => {
-    const stats = vehicles.reduce((acc, vehicle) => {
+    const stats = teltonika.vehicles.reduce((acc, vehicle) => {
       acc[vehicle.status] = (acc[vehicle.status] || 0) + 1;
       return acc;
     }, {});
@@ -47,10 +81,17 @@ const LiveVehicleTracking = () => {
       idle: stats.idle || 0,
       warning: stats.warning || 0,
       offline: stats.offline || 0,
-      total: vehicles.length
+      total: teltonika.vehicles.length
     };
   };
   const statusStats = getStatusStats();
+
+  // Fonction pour reconnecter le WebSocket si déconnecté
+  const handleReconnect = () => {
+    if (!teltonika.isConnected) {
+      teltonika.connect();
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -65,9 +106,20 @@ const LiveVehicleTracking = () => {
             <p className="text-text-secondary">
               Surveillance GPS et télémétrie des véhicules en direct
             </p>
+            {teltonika.error && (
+              <div className="mt-2 px-3 py-2 bg-error-50 border border-error-200 rounded-base text-sm text-error">
+                <div className="flex items-center space-x-2">
+                  <Icon name="AlertCircle" size={16} />
+                  <span>Erreur de connexion: {teltonika.error.message || "Impossible de se connecter au service de télémétrie"}</span>
+                </div>
+              </div>
+            )}
           </div>
           <div className="flex items-center space-x-4">
-            <TeltonikaConnectionStatus />
+            <ConnectionStatus 
+              status={teltonika.isConnected ? 'connected' : teltonika.isConnecting || teltonika.isReconnecting ? 'connecting' : 'disconnected'} 
+              onReconnect={handleReconnect}
+            />
             <button
               onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
               className="lg:hidden btn-secondary flex items-center space-x-2"
@@ -129,7 +181,9 @@ const LiveVehicleTracking = () => {
                 <Icon name="Satellite" size={20} className="text-primary" />
               </div>
               <div>
-                <p className="text-2xl font-semibold text-text-primary">{vehicles.length}</p>
+                <p className="text-2xl font-semibold text-text-primary">
+                  {teltonika.vehicles.filter(v => v.status === 'active').length}
+                </p>
                 <p className="text-sm text-text-secondary">En Direct</p>
               </div>
             </div>
@@ -146,6 +200,19 @@ const LiveVehicleTracking = () => {
             </div>
           </div>
         </div>
+
+        {/* Indicateur de chargement pendant la connexion */}
+        {loading && (
+          <div className="mb-6 flex items-center justify-center p-4 bg-surface-secondary rounded-base border border-border">
+            <Spinner size="md" className="mr-3" />
+            <span className="text-text-secondary">
+              {teltonika.isReconnecting 
+                ? `Tentative de reconnexion (${teltonika.reconnectAttempt || 1}/10)...` 
+                : "Connexion au service de télémétrie en cours..."}
+            </span>
+          </div>
+        )}
+
         {/* Main Content Grid */}
         <div className="grid grid-cols-12 gap-6 h-[calc(100vh-280px)]">
           {/* Left Sidebar - Vehicle Selector */}
@@ -156,19 +223,23 @@ const LiveVehicleTracking = () => {
               onVehicleSelect={setSelectedVehicle}
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
-              loading={loadingVehicles}
+              loading={loading}
+              connectionStatus={teltonika.isConnected ? 'connected' : 'disconnected'}
             />
           </div>
           {/* Center Panel - Map View */}
           <div className={`col-span-12 ${isRightPanelOpen ? 'lg:col-span-7' : 'lg:col-span-10'} transition-all duration-300`}>
             <MapView
               selectedVehicle={selectedVehicle}
-              vehicles={vehicles}
+              vehicles={teltonika.vehicles}
               mapMode={mapMode}
               onMapModeChange={setMapMode}
               isPlaybackMode={isPlaybackMode}
               onPlaybackModeChange={setIsPlaybackMode}
-              loading={loadingVehicles || loadingTelemetry}
+              loading={loading}
+              lastUpdate={teltonika.lastUpdate}
+              updateFrequency="real-time"
+              onVehicleSelect={setSelectedVehicle}
             />
           </div>
           {/* Right Panel - Telemetry & Data */}
@@ -176,10 +247,35 @@ const LiveVehicleTracking = () => {
             <div className="col-span-12 lg:col-span-3">
               <TelemetryPanel
                 selectedVehicle={selectedVehicle}
-                telemetry={telemetry}
+                liveEvents={liveEvents}
+                telemetryData={selectedVehicle ? teltonika.telemetryData[selectedVehicle.id] : null}
                 onClose={() => setIsRightPanelOpen(false)}
-                loading={loadingTelemetry}
+                loading={loading}
+                isConnected={teltonika.isConnected}
+                lastUpdate={teltonika.lastUpdate}
               />
+            </div>
+          )}
+        </div>
+
+        {/* Dernière mise à jour et état de connexion */}
+        <div className="mt-4 flex justify-between items-center">
+          <div className="text-xs text-text-secondary">
+            {teltonika.isConnected ? (
+              <span className="text-success flex items-center">
+                <Icon name="CheckCircle" size={12} className="mr-1" />
+                Connecté et recevant des données en temps réel
+              </span>
+            ) : (
+              <span className="text-error flex items-center">
+                <Icon name="XCircle" size={12} className="mr-1" />
+                Déconnecté du service de télémétrie
+              </span>
+            )}
+          </div>
+          {teltonika.lastUpdate && (
+            <div className="text-xs text-text-secondary text-right">
+              Dernière mise à jour : {teltonika.lastUpdate.toLocaleTimeString('fr-FR')}
             </div>
           )}
         </div>

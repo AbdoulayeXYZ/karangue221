@@ -20,7 +20,7 @@ const ViolationManagement = lazy(() => import('pages/violation-management/Violat
 const UserManagement = lazy(() => import('pages/user-management/UserManagement'));
 
 function isAuthenticated() {
-  return !!localStorage.getItem('token');
+  return !!localStorage.getItem('authToken');
 }
 
 const PrivateRoute = ({ children }) => {

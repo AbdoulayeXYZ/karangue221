@@ -23,11 +23,17 @@ const Login = () => {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur de connexion');
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
-      if (data.user.role === 'admin') {
-        navigate('/admin-dashboard');
+      
+      // Stocker les données d'authentification
+      localStorage.setItem('authToken', data.token);
+      localStorage.setItem('userData', JSON.stringify(data.user));
+      
+      // Redirection basée sur le rôle
+      if (data.user.role === 'admin' || data.user.role === 'owner') {
+        // Pour admin et owner, rediriger vers le dashboard principal
+        navigate('/fleet-dashboard');
       } else {
+        // Pour les autres rôles, rediriger vers le dashboard par défaut
         navigate('/fleet-dashboard');
       }
     } catch (err) {

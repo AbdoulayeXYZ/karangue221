@@ -1,43 +1,104 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import Icon from 'components/AppIcon';
 
-const FleetSummaryCards = ({ vehicles = [], drivers = [], incidents = [], violations = [], telemetry = [], loading }) => {
-  // Calculs dynamiques
-  const totalVehicles = vehicles.length;
-  const onlineVehicles = vehicles.filter(v => v.status === 'active').length;
-  const activeDrivers = drivers.filter(d => d.status === 'active').length;
-  const alertsCount =
-    incidents.filter(i => i.status === 'open').length +
-    violations.filter(v => v.status === 'pending').length;
-  // Consommation carburant aujourd'hui
-  const today = new Date().toISOString().slice(0, 10);
-  const todayFuel = telemetry
-    .filter(t => t.timestamp && t.timestamp.startsWith(today))
-    .reduce((sum, t) => sum + (t.fuel_level || 0), 0);
-  // Distance totale (optionnel, si telemetry.distance existe)
-  const totalDistance = telemetry.reduce((sum, t) => sum + (t.distance || 0), 0);
-  // Vitesse moyenne
-  const averageSpeed = telemetry.length > 0 ?
-    (telemetry.reduce((sum, t) => sum + (t.speed || 0), 0) / telemetry.length).toFixed(1) : 0;
-  // Maintenance due
-  const maintenanceDue = vehicles.filter(v => v.status === 'maintenance').length;
+const FleetSummaryCards = ({ 
+  vehicles = [], 
+  drivers = [], 
+  incidents = [], 
+  violations = [], 
+  telemetry = [], 
+  loading,
+  dashboardData = [] 
+}) => {
+  // Calculs dynamiques optimisés avec useMemo pour éviter les recalculs inutiles lors des mises à jour fréquentes
+  const calculatedStats = useMemo(() => {
+    // Date d'aujourd'hui pour le filtrage
+    const today = new Date().toISOString().slice(0, 10);
+    
+    // Obtenir les données du dashboard si disponibles
+    const dashboardSummary = dashboardData && dashboardData.length > 0 ? dashboardData[0] : null;
+    
+    // Enhanced logging for dashboard data debugging
+    if (dashboardSummary) {
+      console.log('📊 Using dashboard data for stats:', dashboardSummary);
+      
+      // Check if dashboard summary has all required fields
+      const requiredFields = ['fleet_name', 'total_vehicles', 'active_vehicles', 'maintenance_vehicles', 
+                             'inactive_vehicles', 'total_drivers', 'active_drivers', 'open_incidents', 
+                             'total_incidents', 'total_violations', 'last_updated'];
+      
+      const missingFields = requiredFields.filter(field => !dashboardSummary.hasOwnProperty(field));
+      
+      if (missingFields.length > 0) {
+        console.warn('⚠️ Dashboard data is missing some fields:', missingFields.join(', '));
+      }
+      
+      // Log with safe access to properties (using optional chaining)
+      console.log(`📊 Dashboard stats:
+        - Fleet: ${dashboardSummary.fleet_name || 'Unknown'}
+        - Vehicles: ${dashboardSummary.total_vehicles || 0} (${dashboardSummary.active_vehicles || 0} active, ${dashboardSummary.maintenance_vehicles || 0} maintenance, ${dashboardSummary.inactive_vehicles || 0} inactive)
+        - Drivers: ${dashboardSummary.total_drivers || 0} (${dashboardSummary.active_drivers || 0} active)
+        - Incidents: ${dashboardSummary.open_incidents || 0} open / ${dashboardSummary.total_incidents || 0} total
+        - Violations: ${dashboardSummary.total_violations || 0}
+        - Last updated: ${dashboardSummary.last_updated || 'Unknown'}
+      `);
+    } else {
+      console.warn('⚠️ No dashboard data available, using fallback calculation');
+      console.warn('⚠️ Will calculate from: ', vehicles.length, 'vehicles,', drivers.length, 'drivers');
+      console.log('💡 Check if the API request succeeded but returned no data, or if there was an authentication error');
+    }
+    // Calculs des statistiques - utiliser les données du dashboard si disponibles
+    const totalVehicles = dashboardSummary ? dashboardSummary.total_vehicles : vehicles.length;
+    const onlineVehicles = dashboardSummary ? dashboardSummary.active_vehicles : vehicles.filter(v => v.status === 'active').length;
+    const activeDrivers = dashboardSummary ? dashboardSummary.active_drivers : drivers.filter(d => d.status === 'active').length;
+    const alertsCount = dashboardSummary 
+      ? (dashboardSummary.open_incidents + dashboardSummary.total_violations)
+      : (incidents.filter(i => i.status === 'open').length + violations.filter(v => v.status === 'pending').length);
+    
+    // Consommation carburant aujourd'hui
+    const todayFuel = telemetry
+      .filter(t => t.timestamp && t.timestamp.startsWith(today))
+      .reduce((sum, t) => sum + (t.fuel_level || 0), 0);
+    
+    // Distance totale
+    const totalDistance = telemetry.reduce((sum, t) => sum + (t.distance || 0), 0);
+    
+    // Vitesse moyenne
+    const averageSpeed = telemetry.length > 0 ?
+      (telemetry.reduce((sum, t) => sum + (t.speed || 0), 0) / telemetry.length).toFixed(1) : 0;
+    
+    // Maintenance due
+    const maintenanceDue = dashboardSummary ? dashboardSummary.maintenance_vehicles : vehicles.filter(v => v.status === 'maintenance').length;
+    
+    return {
+      totalVehicles,
+      onlineVehicles,
+      activeDrivers,
+      alertsCount,
+      todayFuel,
+      totalDistance,
+      averageSpeed,
+      maintenanceDue
+    };
+  }, [vehicles, drivers, incidents, violations, telemetry, dashboardData]);
 
-  const summaryCards = [
+  // Mémoisation des cartes de résumé pour éviter les re-rendus inutiles
+  const summaryCards = useMemo(() => [
     {
       id: 'total-vehicles',
       title: 'Total Véhicules',
-      value: totalVehicles,
+      value: calculatedStats.totalVehicles,
       icon: 'Truck',
       color: 'primary',
       bgColor: 'bg-primary-50',
       iconColor: 'text-primary',
-      subtitle: `${onlineVehicles} en ligne`,
+      subtitle: `${calculatedStats.onlineVehicles} en ligne`,
       trend: null
     },
     {
       id: 'active-drivers',
       title: 'Conducteurs Actifs',
-      value: activeDrivers,
+      value: calculatedStats.activeDrivers,
       icon: 'UserCheck',
       color: 'success',
       bgColor: 'bg-success-50',
@@ -48,7 +109,7 @@ const FleetSummaryCards = ({ vehicles = [], drivers = [], incidents = [], violat
     {
       id: 'alerts',
       title: 'Alertes Actives',
-      value: alertsCount,
+      value: calculatedStats.alertsCount,
       icon: 'AlertTriangle',
       color: 'warning',
       bgColor: 'bg-warning-50',
@@ -59,7 +120,7 @@ const FleetSummaryCards = ({ vehicles = [], drivers = [], incidents = [], violat
     {
       id: 'fuel-consumption',
       title: 'Consommation Carburant',
-      value: `${todayFuel.toLocaleString('fr-FR')} L`,
+      value: `${calculatedStats.todayFuel.toLocaleString('fr-FR')} L`,
       icon: 'Fuel',
       color: 'secondary',
       bgColor: 'bg-secondary-50',
@@ -70,7 +131,7 @@ const FleetSummaryCards = ({ vehicles = [], drivers = [], incidents = [], violat
     {
       id: 'total-distance',
       title: 'Distance Totale',
-      value: `${totalDistance.toLocaleString('fr-FR')} km`,
+      value: `${calculatedStats.totalDistance.toLocaleString('fr-FR')} km`,
       icon: 'Route',
       color: 'accent',
       bgColor: 'bg-accent-50',
@@ -81,7 +142,7 @@ const FleetSummaryCards = ({ vehicles = [], drivers = [], incidents = [], violat
     {
       id: 'average-speed',
       title: 'Vitesse Moyenne',
-      value: `${averageSpeed} km/h`,
+      value: `${calculatedStats.averageSpeed} km/h`,
       icon: 'Gauge',
       color: 'primary',
       bgColor: 'bg-primary-50',
@@ -92,7 +153,7 @@ const FleetSummaryCards = ({ vehicles = [], drivers = [], incidents = [], violat
     {
       id: 'maintenance-due',
       title: 'Maintenance Due',
-      value: maintenanceDue,
+      value: calculatedStats.maintenanceDue,
       icon: 'Wrench',
       color: 'error',
       bgColor: 'bg-error-50',
@@ -100,7 +161,7 @@ const FleetSummaryCards = ({ vehicles = [], drivers = [], incidents = [], violat
       subtitle: 'Véhicules concernés',
       trend: null
     }
-  ];
+  ], [calculatedStats]);
 
   return (
     <div className="space-y-4">
@@ -108,9 +169,14 @@ const FleetSummaryCards = ({ vehicles = [], drivers = [], incidents = [], violat
         <h2 className="text-lg font-heading font-semibold text-text-primary">
           Résumé de la Flotte
         </h2>
-        {loading && (
-          <div className="w-4 h-4 border-2 border-secondary border-t-transparent rounded-full animate-spin"></div>
-        )}
+        <div className="flex items-center space-x-2">
+          {loading && (
+            <div className="w-4 h-4 border-2 border-secondary border-t-transparent rounded-full animate-spin"></div>
+          )}
+          <div className="text-xs text-text-secondary px-2 py-1 rounded-full bg-surface-secondary">
+            Mise à jour en temps réel
+          </div>
+        </div>
       </div>
 
       {summaryCards.map((card) => (

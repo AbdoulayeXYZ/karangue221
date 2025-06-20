@@ -5,6 +5,7 @@ import useApiResource from 'hooks/useApiResource';
 import * as driverApi from 'services/api/drivers';
 import * as violationApi from 'services/api/violations';
 import * as telemetryApi from 'services/api/telemetry';
+import * as driverAnalyticsApi from 'services/api/driverAnalytics';
 
 import Breadcrumb from 'components/ui/Breadcrumb';
 import DriverSelector from './components/DriverSelector';
@@ -20,6 +21,13 @@ const DriverBehaviorAnalytics = () => {
   const [dateRange, setDateRange] = useState('30days');
   const [selectedViolationTypes, setSelectedViolationTypes] = useState([]);
   const [selectedSeverity, setSelectedSeverity] = useState('all');
+  
+  // Analytics data states
+  const [driverAnalytics, setDriverAnalytics] = useState(null);
+  const [driverMetrics, setDriverMetrics] = useState(null);
+  const [driverViolations, setDriverViolations] = useState([]);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState(null);
   const {
     data: driversRaw,
     loading: isLoadingDrivers,
@@ -74,120 +82,90 @@ const DriverBehaviorAnalytics = () => {
 
   useEffect(() => {
     fetchDrivers();
-    fetchViolations();
-    fetchTelemetry();
+    // No need to fetch all violations and telemetry anymore
+    // We'll fetch them specifically for the selected driver
     // eslint-disable-next-line
   }, []);
 
   useEffect(() => {
     if (drivers && drivers.length > 0 && !selectedDriver) {
+      // Set the first driver as selected by default
       setSelectedDriver(drivers[0]);
     }
-  }, [drivers]);
-
-  // Violations du conducteur sélectionné pour la période (ex: ce mois)
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const driverViolations = violations.filter(v => v.driver_id === selectedDriver?.id);
-  const driverViolationsThisMonth = driverViolations.filter(v => new Date(v.date) >= startOfMonth);
-
-  // Jours sécurisés consécutifs (aucune violation sur la journée)
-  const violationDates = driverViolations.map(v => new Date(v.date).toDateString());
-  let safeDays = 0;
-  for (let d = new Date(now); d >= startOfMonth; d.setDate(d.getDate() - 1)) {
-    if (!violationDates.includes(d.toDateString())) {
-      safeDays++;
-    } else {
-      break;
-    }
-  }
-
-  // Répartition des comportements (pie chart)
-  const behaviorTypes = [
-    { key: 'safe', label: 'Conduite Sécurisée', color: '#10B981' },
-    { key: 'speeding', label: 'Excès de Vitesse', color: '#EF4444' },
-    { key: 'harsh_braking', label: 'Freinage Brusque', color: '#F59E0B' },
-    { key: 'harsh_acceleration', label: 'Accélération Brusque', color: '#F97316' },
-    { key: 'sharp_turn', label: 'Virages Serrés', color: '#8B5CF6' },
-    { key: 'fatigue', label: 'Fatigue Détectée', color: '#EC4899' }
-  ];
-  const totalEvents = driverViolations.length + 1; // +1 pour éviter division par zéro
-  const scoringData = behaviorTypes.map(type => {
-    const count = driverViolations.filter(v => v.type === type.label).length;
-    return {
-      name: type.label,
-      value: Math.round((count / totalEvents) * 100),
-      color: type.color
-    };
-  });
-  // Ajoute la part de conduite sécurisée
-  scoringData[0].value = 100 - scoringData.slice(1).reduce((sum, v) => sum + v.value, 0);
-
-  // Timeline du score (exemple: score = 100 - 5*nb violations ce jour)
-  const timelineData = [];
-  for (let i = 0; i < 30; i++) {
-    const day = new Date(now);
-    day.setDate(now.getDate() - i);
-    const dayViolations = driverViolations.filter(v => new Date(v.date).toDateString() === day.toDateString());
-    const score = Math.max(0, 100 - 5 * dayViolations.length);
-    timelineData.unshift({ date: day.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }), score, violations: dayViolations.length });
-  }
-
-  // Score global (moyenne sur 30 jours)
-  const overallScore = Math.round(timelineData.reduce((sum, d) => sum + d.score, 0) / timelineData.length);
-
-  // Met à jour les métriques du conducteur sélectionné
-  useEffect(() => {
-    if (selectedDriver) {
-      setSelectedDriver({
-        ...selectedDriver,
-        overallScore,
-        violations: driverViolationsThisMonth.length,
-        safeDays
-      });
-    }
     // eslint-disable-next-line
-  }, [overallScore, driverViolationsThisMonth.length, safeDays]);
+  }, [drivers]);
+  
+  // Fetch driver analytics data when a driver is selected or filters change
+  useEffect(() => {
+    const fetchAllDriverData = async () => {
+      if (!selectedDriver?.id) return;
+      
+      setLoadingAnalytics(true);
+      setAnalyticsError(null);
+      
+      try {
+        // Fetch all data in parallel
+        const [analytics, metrics, violations] = await Promise.all([
+          driverAnalyticsApi.getDriverAnalytics(selectedDriver.id),
+          driverAnalyticsApi.getDriverMetrics(selectedDriver.id),
+          driverAnalyticsApi.getDriverViolations(selectedDriver.id, dateRange) // Simplified API call
+        ]);
+        
+        setDriverAnalytics(analytics);
+        setDriverMetrics(metrics);
+        
+        // Filter violations based on UI selections
+        let filteredViolations = violations;
+        if (selectedViolationTypes.length > 0) {
+          filteredViolations = filteredViolations.filter(v => 
+            selectedViolationTypes.includes(v.type)
+          );
+        }
+        if (selectedSeverity !== 'all') {
+          filteredViolations = filteredViolations.filter(v => 
+            v.severity.toLowerCase() === selectedSeverity.toLowerCase()
+          );
+        }
+        setDriverViolations(filteredViolations);
+        
+      } catch (error) {
+        console.error('Error fetching driver data:', error);
+        setAnalyticsError(error.message || 'Failed to load driver analytics');
+      } finally {
+        setLoadingAnalytics(false);
+      }
+    };
+    
+    fetchAllDriverData();
+    // eslint-disable-next-line
+  }, [selectedDriver?.id, dateRange, selectedViolationTypes, selectedSeverity]);
 
-  // Statistiques rapides dynamiques
-  const criticalViolations = driverViolations.filter(v => (v.severity || v.gravite || '').toLowerCase() === 'critique').length;
-  const totalCost = driverViolations.reduce((sum, v) => sum + (v.cost || 0), 0);
-
-  // Amélioration : différence de score global entre ce mois et le mois précédent
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const thisMonthScores = timelineData.slice(-daysInMonth).map(d => d.score);
-  const lastMonthScores = timelineData.slice(-2 * daysInMonth, -daysInMonth).map(d => d.score);
-  const thisMonthAvg = thisMonthScores.length ? thisMonthScores.reduce((a, b) => a + b, 0) / thisMonthScores.length : 0;
-  const lastMonthAvg = lastMonthScores.length ? lastMonthScores.reduce((a, b) => a + b, 0) / lastMonthScores.length : 0;
-  const improvement = lastMonthAvg ? Math.round(((thisMonthAvg - lastMonthAvg) / lastMonthAvg) * 100) : 0;
-
-  // Génère dynamiquement les données de comparaison pour la section tendances
-  const fleetScores = drivers.map(d => d.overallScore || 0);
-  const fleetAvg = fleetScores.length ? Math.round(fleetScores.reduce((a, b) => a + b, 0) / fleetScores.length) : 0;
-  const peerDrivers = drivers.filter(d => d.fleet_id === selectedDriver?.fleet_id && d.id !== selectedDriver?.id);
-  const peerScores = peerDrivers.map(d => d.overallScore || 0);
-  const peerAvg = peerScores.length ? Math.round(peerScores.reduce((a, b) => a + b, 0) / peerScores.length) : 0;
-  const comparisonData = [
-    { category: 'Score Global', driver: overallScore, fleet: fleetAvg, peer: peerAvg }
-    // Tu peux ajouter d'autres catégories dynamiquement ici si tu veux
+  // Get data from the API responses rather than calculating it
+  const now = new Date();
+  
+  // Use analytics data from the API
+  const overallScore = driverAnalytics?.analytics?.overallScore || 0;
+  const timelineData = driverAnalytics?.analytics?.timelineData || [];
+  const scoringData = driverAnalytics?.analytics?.scoringData || [];
+  
+  // Get metrics from the API
+  const criticalViolations = driverMetrics?.criticalViolations || 0;
+  const totalCost = driverMetrics?.totalCost || 0;
+  const improvement = driverMetrics?.improvement || 0;
+  const reduction = driverMetrics?.reduction || 0;
+  const comparisonData = driverMetrics?.comparisonData || [
+    { category: 'Score Global', driver: overallScore, fleet: 0, peer: 0 }
   ];
-
-  // Réduction des violations : différence en % du nombre de violations entre ce mois et le mois précédent
-  const lastMonthViolations = driverViolations.filter(v => {
-    const date = new Date(v.date);
-    return date.getMonth() === now.getMonth() - 1 && date.getFullYear() === now.getFullYear();
-  });
-  const reduction = lastMonthViolations.length
-    ? Math.round(((driverViolationsThisMonth.length - lastMonthViolations.length) / lastMonthViolations.length) * 100)
-    : 0;
-
-  // Classement du conducteur dans la flotte (par score global)
-  const sortedDrivers = [...drivers].sort((a, b) => (b.overallScore || 0) - (a.overallScore || 0));
-  const rank = sortedDrivers.findIndex(d => d.id === selectedDriver?.id) + 1;
-  const totalDrivers = sortedDrivers.length;
+  const rank = driverMetrics?.rank || 1;
+  const totalDrivers = driverMetrics?.totalDrivers || drivers.length;
+  
+  // Calculate monthlyViolations count for this month - needed for some UI elements
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const driverViolationsThisMonth = driverViolations.filter(v => new Date(v.date) >= startOfMonth);
 
   const handleDriverSelect = (driver) => {
     setSelectedDriver(driver);
+    // The useEffect will fetch the analytics data for the new driver
   };
 
   const handleTabChange = (tab) => {
@@ -234,12 +212,77 @@ const DriverBehaviorAnalytics = () => {
     { id: 'trends', label: 'Tendances', icon: 'TrendingUp' }
   ];
 
-  if (!selectedDriver) {
+  if (isLoadingDrivers) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <Icon name="Loader2" size={48} className="text-secondary animate-spin mx-auto mb-4" />
+          <p className="text-text-secondary">Chargement des conducteurs...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  if (driversError) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <Icon name="AlertCircle" size={48} className="text-error mx-auto mb-4" />
+          <p className="text-text-primary font-medium mb-2">Erreur de chargement</p>
+          <p className="text-text-secondary">{driversError.message}</p>
+          <button className="mt-4 btn-primary" onClick={fetchDrivers}>Réessayer</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (drivers.length === 0) {
+    return (
+      <div className="min-h-screen bg-background">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <Breadcrumb />
+          <div className="mb-8">
+            <h1 className="text-3xl font-heading font-bold text-text-primary mb-2">
+              Analyse Comportementale des Conducteurs
+            </h1>
+            <p className="text-text-secondary">
+              Évaluation des performances et suivi des violations de conduite
+            </p>
+          </div>
+          <div className="text-center py-20 bg-surface rounded-lg border border-border">
+            <Icon name="Users" size={48} className="text-text-secondary mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-text-primary">Aucun conducteur à analyser</h3>
+            <p className="text-text-secondary mt-2">Ajoutez des conducteurs pour voir leurs statistiques ici.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  if (!selectedDriver || loadingAnalytics) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <Icon name="Loader2" size={48} className="text-secondary animate-spin mx-auto mb-4" />
           <p className="text-text-secondary">Chargement des données conducteur...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  if (analyticsError) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <Icon name="AlertCircle" size={48} className="text-error mx-auto mb-4" />
+          <p className="text-text-primary font-medium mb-2">Erreur lors du chargement des données</p>
+          <p className="text-text-secondary">{analyticsError}</p>
+          <button 
+            className="mt-4 btn-primary"
+            onClick={() => window.location.reload()}
+          >
+            Réessayer
+          </button>
         </div>
       </div>
     );
@@ -445,6 +488,14 @@ const DriverBehaviorAnalytics = () => {
                       getSeverityColor={getSeverityColor}
                       getViolationIcon={getViolationIcon}
                     />
+                    {driverViolations.length === 0 && (
+                      <div className="text-center py-8">
+                        <Icon name="Check" size={48} className="text-success mx-auto mb-4" />
+                        <p className="text-text-secondary">
+                          Aucune violation pour les filtres sélectionnés
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
 

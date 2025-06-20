@@ -1,33 +1,38 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Icon from 'components/AppIcon';
 
-const API_URL = 'http://localhost:5001/api';
-
-const InteractiveMap = ({ mapView, vehicleStatus, selectedDriver, timeRange }) => {
-  const [vehicles, setVehicles] = useState([]);
+// Mise à jour pour utiliser les props de véhicules et l'état de connexion
+const InteractiveMap = ({ 
+  vehicles = [], 
+  telemetry = [], 
+  mapView, 
+  vehicleStatus, 
+  selectedDriver, 
+  timeRange, 
+  loading,
+  connectionStatus 
+}) => {
   const [selectedVehicle, setSelectedVehicle] = useState(null);
   const [mapCenter, setMapCenter] = useState({ lat: 14.6928, lng: -17.4467 }); // Dakar, Senegal
   const [zoomLevel, setZoomLevel] = useState(12);
   const [showGeofences, setShowGeofences] = useState(true);
-  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-
+  
+  // Réinitialiser le véhicule sélectionné si les données changent significativement
   useEffect(() => {
-    setIsLoading(true);
-    fetch(`${API_URL}/vehicles`)
-      .then(res => {
-        if (!res.ok) throw new Error('Erreur lors du chargement des véhicules');
-        return res.json();
-      })
-      .then(data => {
-        setVehicles(data);
-        setIsLoading(false);
-      })
-      .catch(err => {
-        setError(err.message);
-        setIsLoading(false);
-      });
-  }, []);
+    if (selectedVehicle) {
+      const stillExists = vehicles.some(v => v.id === selectedVehicle.id);
+      if (!stillExists) {
+        setSelectedVehicle(null);
+      } else {
+        // Mettre à jour les données du véhicule sélectionné avec les dernières informations
+        const updatedVehicle = vehicles.find(v => v.id === selectedVehicle.id);
+        if (updatedVehicle) {
+          setSelectedVehicle(updatedVehicle);
+        }
+      }
+    }
+  }, [vehicles, selectedVehicle]);
 
   const getVehicleStatusColor = (status) => {
     switch (status) {
@@ -62,17 +67,28 @@ const InteractiveMap = ({ mapView, vehicleStatus, selectedDriver, timeRange }) =
     setZoomLevel(prev => Math.max(prev - 1, 8));
   };
 
-  const filteredVehicles = vehicles.filter(vehicle => {
-    if (vehicleStatus !== 'all' && vehicle.status !== vehicleStatus) return false;
-    if (selectedDriver !== 'all' && vehicle.driver !== selectedDriver) return false;
-    return true;
-  });
+  // Filtrage des véhicules optimisé avec useMemo pour éviter les recalculs inutiles lors des mises à jour fréquentes
+  const filteredVehicles = useMemo(() => {
+    return vehicles.filter(vehicle => {
+      if (vehicleStatus !== 'all' && vehicle.status !== vehicleStatus) return false;
+      if (selectedDriver !== 'all' && vehicle.driver !== selectedDriver) return false;
+      return true;
+    });
+  }, [vehicles, vehicleStatus, selectedDriver]);
+
+  // Vehicle status legend data - moved from inside JSX to fix hooks order
+  const vehicleStatusLegend = useMemo(() => [
+    { status: 'moving', label: 'En mouvement', count: filteredVehicles.filter(v => v.status === 'moving').length },
+    { status: 'idle', label: 'À l\'arrêt', count: filteredVehicles.filter(v => v.status === 'idle').length },
+    { status: 'warning', label: 'Alerte', count: filteredVehicles.filter(v => v.status === 'warning').length },
+    { status: 'offline', label: 'Hors ligne', count: filteredVehicles.filter(v => v.status === 'offline').length }
+  ], [filteredVehicles]);
 
   return (
     <div className="relative">
       {/* Map Container */}
       <div className="h-96 lg:h-[500px] bg-surface-secondary rounded-base overflow-hidden relative">
-        {isLoading ? (
+        {loading ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center">
               <div className="w-8 h-8 border-2 border-secondary border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
@@ -119,16 +135,48 @@ const InteractiveMap = ({ mapView, vehicleStatus, selectedDriver, timeRange }) =
               </button>
             </div>
 
+            {/* Connection Status Indicator */}
+            {connectionStatus && (
+              <div className="absolute top-4 left-4 z-10">
+                <div className={`px-3 py-1 rounded-full text-xs flex items-center space-x-1 ${
+                  connectionStatus === 'connected' ? 'bg-success/20 text-success' :
+                  connectionStatus === 'connecting' ? 'bg-primary/20 text-primary' :
+                  connectionStatus === 'error' ? 'bg-warning/20 text-warning' :
+                  'bg-text-secondary/20 text-text-secondary'
+                }`}>
+                  {connectionStatus === 'connected' && (
+                    <>
+                      <span className="h-2 w-2 rounded-full bg-success animate-pulse"></span>
+                      <span>Temps réel</span>
+                    </>
+                  )}
+                  {connectionStatus === 'connecting' && (
+                    <>
+                      <span className="h-2 w-2 rounded-full bg-primary animate-pulse"></span>
+                      <span>Connexion...</span>
+                    </>
+                  )}
+                  {connectionStatus === 'error' && (
+                    <>
+                      <Icon name="AlertTriangle" size={12} />
+                      <span>Erreur</span>
+                    </>
+                  )}
+                  {connectionStatus === 'disconnected' && (
+                    <>
+                      <Icon name="WifiOff" size={12} />
+                      <span>Hors ligne</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Vehicle Status Legend */}
             <div className="absolute bottom-4 left-4 bg-surface border border-border rounded-base shadow-elevation-1 p-3">
               <h4 className="text-xs font-medium text-text-primary mb-2">Légende</h4>
               <div className="space-y-1">
-                {[
-                  { status: 'moving', label: 'En mouvement', count: filteredVehicles.filter(v => v.status === 'moving').length },
-                  { status: 'idle', label: 'À l\'arrêt', count: filteredVehicles.filter(v => v.status === 'idle').length },
-                  { status: 'warning', label: 'Alerte', count: filteredVehicles.filter(v => v.status === 'warning').length },
-                  { status: 'offline', label: 'Hors ligne', count: filteredVehicles.filter(v => v.status === 'offline').length }
-                ].map(item => (
+                {vehicleStatusLegend.map(item => (
                   <div key={item.status} className="flex items-center space-x-2 text-xs">
                     <div 
                       className="w-3 h-3 rounded-full"
@@ -212,9 +260,13 @@ const InteractiveMap = ({ mapView, vehicleStatus, selectedDriver, timeRange }) =
               <p className="font-medium text-text-primary font-data">{selectedVehicle.fuel}%</p>
             </div>
             <div>
-              <p className="text-text-secondary">Dernière MAJ</p>
+              <p className="text-sm text-text-secondary mb-2">Dernière MAJ</p>
               <p className="font-medium text-text-primary font-data">
-                {selectedVehicle.lastUpdate.toLocaleTimeString('fr-FR')}
+                {selectedVehicle.lastUpdate ? 
+                  (typeof selectedVehicle.lastUpdate === 'string' ? 
+                    new Date(selectedVehicle.lastUpdate).toLocaleTimeString('fr-FR') : 
+                    selectedVehicle.lastUpdate.toLocaleTimeString('fr-FR')
+                  ) : 'N/A'}
               </p>
             </div>
           </div>

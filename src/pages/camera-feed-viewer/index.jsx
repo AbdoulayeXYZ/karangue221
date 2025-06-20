@@ -140,15 +140,15 @@ const CameraFeedViewer = () => {
   let videoUrl = '';
   if (selectedVehicleData) {
     if (selectedCamera === 'driver') {
-      videoUrl = selectedVehicleData.cameras?.driver?.videoUrl || '';
+      videoUrl = selectedVehicleData.cameras?.includes('driver') ? 'mock-video-url-driver' : '';
     } else if (selectedCamera === 'road') {
-      videoUrl = selectedVehicleData.cameras?.road?.videoUrl || '';
+      videoUrl = selectedVehicleData.cameras?.includes('front') ? 'mock-video-url-front' : '';
     } else if (selectedCamera === 'dual') {
       // Pour la vue duale, on peut afficher deux vidéos côte à côte
       // (voir plus bas pour l'intégration)
     }
   }
-  const vehicleIncidents = incidents.filter(inc => inc.vehicleId === selectedVehicle);
+  const vehicleIncidents = incidents.filter(inc => inc.vehicle_id === selectedVehicle);
 
   // Timeline events dynamiques à partir de la télémétrie filtrée sur le véhicule sélectionné
   const timelineEvents = telemetry
@@ -218,12 +218,12 @@ const CameraFeedViewer = () => {
               <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div className="flex items-center space-x-4">
                   <h2 className="text-lg font-heading font-semibold text-text-primary">
-                    Véhicule {selectedVehicleData?.plateNumber}
+                    Véhicule {selectedVehicleData?.registration || 'N/A'}
                   </h2>
                   <div className="flex items-center space-x-2">
                     <Icon name="User" size={14} className="text-text-secondary" />
                     <span className="text-sm text-text-secondary">
-                      {selectedVehicleData?.driver}
+                      {selectedVehicleData?.brand} {selectedVehicleData?.model}
                     </span>
                   </div>
                 </div>
@@ -249,7 +249,7 @@ const CameraFeedViewer = () => {
                       <video
                         ref={videoRef}
                         className="w-full h-full object-cover"
-                        src={selectedVehicleData?.cameras?.driver?.videoUrl || ''}
+                        src={selectedVehicleData?.cameras?.includes('driver') ? 'mock-video-url-driver' : ''}
                         poster="https://images.pexels.com/photos/1592384/pexels-photo-1592384.jpeg?auto=compress&cs=tinysrgb&w=800"
                         controls
                       />
@@ -264,7 +264,7 @@ const CameraFeedViewer = () => {
                     <div className="relative">
                       <video
                         className="w-full h-full object-cover"
-                        src={selectedVehicleData?.cameras?.road?.videoUrl || ''}
+                        src={selectedVehicleData?.cameras?.includes('front') ? 'mock-video-url-front' : ''}
                         poster="https://images.pexels.com/photos/1592384/pexels-photo-1592384.jpeg?auto=compress&cs=tinysrgb&w=800"
                         controls
                       />

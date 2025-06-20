@@ -1,7 +1,7 @@
 const API_URL = 'http://localhost:5001/api/devices';
 
 function getAuthHeaders() {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('authToken');
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 

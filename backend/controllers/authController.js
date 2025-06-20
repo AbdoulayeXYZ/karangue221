@@ -26,4 +26,59 @@ exports.login = async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Erreur serveur.' });
   }
-}; 
+};
+
+/**
+ * DEV ONLY: Generate a development JWT token
+ * This route should ONLY be used during development to facilitate testing
+ * and should be disabled in production
+ */
+exports.getDevToken = async (req, res) => {
+  // Only allow this in development environment
+  if (process.env.NODE_ENV === 'production') {
+    console.log('🚫 Tentative d\'accès à la route de développement en production');
+    return res.status(404).json({ error: 'Route non disponible' });
+  }
+
+  try {
+    console.log('🔑 Génération d\'un token de développement');
+    
+    // Try to get an admin user from the database first
+    const [users] = await db.query('SELECT * FROM users WHERE role IN ("admin", "owner") LIMIT 1');
+    
+    let user;
+    
+    if (users && users.length > 0) {
+      // Use an existing admin user if available
+      user = users[0];
+      console.log(`✅ Utilisation de l'utilisateur existant: ${user.name} (${user.email})`);
+    } else {
+      // Create a fake user if no admin found
+      user = {
+        id: 999,
+        name: 'Admin Développement',
+        email: 'dev@karangue221.com',
+        role: 'admin'
+      };
+      console.log('⚠️ Aucun administrateur trouvé dans la base de données, utilisation d\'un utilisateur fictif');
+    }
+    
+    // Generate token valid for 24 hours
+    const token = jwt.sign(
+      { id: user.id, name: user.name, email: user.email, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+    
+    // Return the token and user info
+    console.log(`✅ Token de développement généré pour ${user.name}`);
+    res.json({ 
+      token, 
+      user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      message: 'Token de développement généré avec succès. NE PAS UTILISER EN PRODUCTION.'
+    });
+  } catch (err) {
+    console.error('❌ Erreur lors de la génération du token de développement:', err);
+    res.status(500).json({ error: 'Erreur serveur lors de la génération du token.' });
+  }
+};

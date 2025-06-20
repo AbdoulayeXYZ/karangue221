@@ -1,11 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import Icon from 'components/AppIcon';
 import Image from 'components/AppImage';
+import { Transition } from '@headlessui/react';
 
-const TelemetryPanel = ({ selectedVehicle, liveEvents, onClose }) => {
+const TelemetryPanel = memo(({ 
+  selectedVehicle, 
+  liveEvents = [], 
+  telemetryData = null, 
+  onClose, 
+  loading = false, 
+  isConnected = false,
+  lastUpdate = null
+}) => {
   const [activeTab, setActiveTab] = useState('telemetry');
   const [expandedCamera, setExpandedCamera] = useState(null);
-  const [telemetryData, setTelemetryData] = useState({});
+  const [localTelemetry, setLocalTelemetry] = useState({});
+  const [updatedFields, setUpdatedFields] = useState({});
+  const prevTelemetryRef = useRef({});
 
   const tabs = [
     { id: 'telemetry', label: 'Télémétrie', icon: 'Activity' },
@@ -33,27 +44,67 @@ const TelemetryPanel = ({ selectedVehicle, liveEvents, onClose }) => {
       fps: 15
     }
   ];
-
-  useEffect(() => {
-    // Simulate real-time telemetry updates
-    const interval = setInterval(() => {
-      if (selectedVehicle) {
-        setTelemetryData({
-          timestamp: new Date(),
-          gpsSignal: Math.floor(Math.random() * 20) + 80,
-          satellites: Math.floor(Math.random() * 5) + 8,
-          hdop: (Math.random() * 2 + 1).toFixed(1),
-          batteryVoltage: (Math.random() * 2 + 12).toFixed(1),
-          engineTemp: Math.floor(Math.random() * 20) + 80,
-          coolantTemp: Math.floor(Math.random() * 15) + 75,
-          oilPressure: Math.floor(Math.random() * 10) + 30,
-          rpm: Math.floor(Math.random() * 1000) + 1500
-        });
+  // Highlight fields that have changed
+  const highlightChanges = useCallback((newData, prevData) => {
+    if (!prevData || !newData) return {};
+    
+    const changedFields = {};
+    Object.keys(newData).forEach(key => {
+      if (newData[key] !== prevData[key]) {
+        changedFields[key] = true;
       }
-    }, 2000);
+    });
+    
+    return changedFields;
+  }, []);
 
-    return () => clearInterval(interval);
-  }, [selectedVehicle]);
+  // Update local telemetry state when telemetryData props changes
+  // Optimize with useMemo for expensive comparison operations
+  const changes = useMemo(() => {
+    if (telemetryData && selectedVehicle) {
+      return highlightChanges(telemetryData, prevTelemetryRef.current);
+    }
+    return {};
+  }, [telemetryData, selectedVehicle, highlightChanges]);
+  
+  useEffect(() => {
+    if (telemetryData && selectedVehicle) {
+      // Highlight changed fields
+      setUpdatedFields(changes);
+      
+      // Store current data for next comparison
+      setLocalTelemetry(telemetryData);
+      prevTelemetryRef.current = telemetryData;
+      
+      // Clear highlights after animation
+      const timer = setTimeout(() => {
+        setUpdatedFields({});
+      }, 2000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [telemetryData, selectedVehicle, changes]);
+
+  // Fallback to use vehicle telemetry if specific telemetry data not provided
+  useEffect(() => {
+    if (!telemetryData && selectedVehicle) {
+      // Use vehicle data as telemetry source if specific telemetry not provided
+      const basicTelemetry = {
+        timestamp: new Date(),
+        gpsSignal: 95,
+        satellites: 12,
+        hdop: '1.2',
+        batteryVoltage: '12.8',
+        engineTemp: 85,
+        coolantTemp: 80,
+        oilPressure: 35,
+        rpm: 1800,
+        ...selectedVehicle.telemetry
+      };
+      
+      setLocalTelemetry(basicTelemetry);
+    }
+  }, [telemetryData, selectedVehicle]);
 
   const getEventSeverityColor = (severity) => {
     switch (severity) {
@@ -102,6 +153,35 @@ const TelemetryPanel = ({ selectedVehicle, liveEvents, onClose }) => {
     if (diff < 86400) return `Il y a ${Math.floor(diff / 3600)}h`;
     return `Il y a ${Math.floor(diff / 86400)}j`;
   };
+
+  // Render animated value that highlights changes (memoized for performance)
+  const AnimatedValue = useCallback(({ value, field, prefix = '', suffix = '', isNumeric = true }) => {
+    const hasChanged = updatedFields[field];
+    const displayValue = value !== undefined && value !== null ? value : '–';
+    
+    return (
+      <span className={`${hasChanged ? 'relative' : ''} transition-colors duration-500`}>
+        {prefix}{displayValue}{suffix}
+        
+        {hasChanged && isNumeric && (
+          <span className="absolute left-0 top-0 w-full bg-primary-100 rounded-sm animate-highlight-pulse z-0">
+            {prefix}{displayValue}{suffix}
+          </span>
+        )}
+      </span>
+    );
+  }, [updatedFields]);
+
+  if (loading) {
+    return (
+      <div className="card h-full flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-t-primary rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-text-secondary">Chargement des données de télémétrie...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!selectedVehicle) {
     return (
@@ -159,46 +239,62 @@ const TelemetryPanel = ({ selectedVehicle, liveEvents, onClose }) => {
           <div className="p-4 space-y-4">
             {/* Vehicle Status */}
             <div className="space-y-3">
-              <h4 className="font-medium text-text-primary text-sm">État du Véhicule</h4>
+              <div className="flex items-center justify-between">
+                <h4 className="font-medium text-text-primary text-sm">État du Véhicule</h4>
+                {isConnected && (
+                  <span className="text-xs flex items-center text-success">
+                    <span className="w-2 h-2 bg-success rounded-full mr-1 animate-pulse"></span>
+                    En direct
+                  </span>
+                )}
+              </div>
               
               <div className="grid grid-cols-2 gap-3">
-                <div className="bg-surface-secondary rounded-base p-3">
+                <div className={`bg-surface-secondary rounded-base p-3 relative overflow-hidden ${updatedFields.speed ? 'highlight-card' : ''}`}>
                   <div className="flex items-center space-x-2 mb-1">
                     <Icon name="Gauge" size={14} className="text-text-secondary" />
                     <span className="text-xs text-text-secondary">Vitesse</span>
                   </div>
-                  <p className="text-lg font-semibold text-text-primary font-data">
-                    {selectedVehicle.speed} km/h
+                  <p className="text-lg font-semibold text-text-primary font-data relative z-10">
+                    <AnimatedValue value={selectedVehicle.speed} field="speed" suffix=" km/h" />
                   </p>
                 </div>
                 
-                <div className="bg-surface-secondary rounded-base p-3">
+                <div className={`bg-surface-secondary rounded-base p-3 relative overflow-hidden ${updatedFields.fuel ? 'highlight-card' : ''}`}>
                   <div className="flex items-center space-x-2 mb-1">
                     <Icon name="Fuel" size={14} className="text-text-secondary" />
                     <span className="text-xs text-text-secondary">Carburant</span>
                   </div>
-                  <p className="text-lg font-semibold text-text-primary font-data">
-                    {selectedVehicle.fuel}%
+                  <p className="text-lg font-semibold text-text-primary font-data relative z-10">
+                    <AnimatedValue value={selectedVehicle.fuel} field="fuel" suffix="%" />
                   </p>
                 </div>
                 
-                <div className="bg-surface-secondary rounded-base p-3">
+                <div className={`bg-surface-secondary rounded-base p-3 relative overflow-hidden ${updatedFields.temperature ? 'highlight-card' : ''}`}>
                   <div className="flex items-center space-x-2 mb-1">
                     <Icon name="Thermometer" size={14} className="text-text-secondary" />
                     <span className="text-xs text-text-secondary">Température</span>
                   </div>
-                  <p className="text-lg font-semibold text-text-primary font-data">
-                    {selectedVehicle.temperature}°C
+                  <p className="text-lg font-semibold text-text-primary font-data relative z-10">
+                    <AnimatedValue 
+                      value={selectedVehicle.temperature} 
+                      field="temperature" 
+                      suffix="°C" 
+                    />
                   </p>
                 </div>
                 
-                <div className="bg-surface-secondary rounded-base p-3">
+                <div className={`bg-surface-secondary rounded-base p-3 relative overflow-hidden ${updatedFields.engineStatus ? 'highlight-card' : ''}`}>
                   <div className="flex items-center space-x-2 mb-1">
                     <Icon name="Settings" size={14} className="text-text-secondary" />
                     <span className="text-xs text-text-secondary">Moteur</span>
                   </div>
-                  <p className="text-lg font-semibold text-text-primary capitalize">
-                    {selectedVehicle.engineStatus}
+                  <p className="text-lg font-semibold text-text-primary capitalize relative z-10">
+                    <AnimatedValue 
+                      value={selectedVehicle.engineStatus} 
+                      field="engineStatus" 
+                      isNumeric={false}
+                    />
                   </p>
                 </div>
               </div>
@@ -211,31 +307,48 @@ const TelemetryPanel = ({ selectedVehicle, liveEvents, onClose }) => {
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-text-secondary">Signal GPS</span>
-                  <span className="text-xs font-medium text-text-primary font-data">
-                    {telemetryData.gpsSignal || 95}%
+                  <span className={`text-xs font-medium text-text-primary font-data ${updatedFields.gpsSignal ? 'bg-primary-100 px-1 rounded animate-pulse' : ''}`}>
+                    <AnimatedValue value={localTelemetry.gpsSignal} field="gpsSignal" suffix="%" />
                   </span>
                 </div>
                 
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-text-secondary">Satellites</span>
-                  <span className="text-xs font-medium text-text-primary font-data">
-                    {telemetryData.satellites || 12}
+                  <span className={`text-xs font-medium text-text-primary font-data ${updatedFields.satellites ? 'bg-primary-100 px-1 rounded animate-pulse' : ''}`}>
+                    <AnimatedValue value={localTelemetry.satellites} field="satellites" />
                   </span>
                 </div>
                 
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-text-secondary">HDOP</span>
-                  <span className="text-xs font-medium text-text-primary font-data">
-                    {telemetryData.hdop || '1.2'}
+                  <span className={`text-xs font-medium text-text-primary font-data ${updatedFields.hdop ? 'bg-primary-100 px-1 rounded animate-pulse' : ''}`}>
+                    <AnimatedValue value={localTelemetry.hdop} field="hdop" />
                   </span>
                 </div>
                 
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-text-secondary">Dispositif</span>
-                  <span className="text-xs font-medium text-text-primary">
-                    {selectedVehicle.deviceType}
+                  <span className={`text-xs font-medium text-text-primary ${updatedFields.deviceType ? 'bg-primary-100 px-1 rounded animate-pulse' : ''}`}>
+                    <AnimatedValue 
+                      value={selectedVehicle.deviceType} 
+                      field="deviceType" 
+                      isNumeric={false} 
+                    />
                   </span>
                 </div>
+                
+                {localTelemetry.batteryVoltage && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-text-secondary">Batterie</span>
+                    <span className={`text-xs font-medium text-text-primary font-data ${updatedFields.batteryVoltage ? 'bg-primary-100 px-1 rounded animate-pulse' : ''}`}>
+                      <AnimatedValue 
+                        value={localTelemetry.batteryVoltage} 
+                        field="batteryVoltage" 
+                        suffix="V" 
+                      />
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -490,15 +603,78 @@ const TelemetryPanel = ({ selectedVehicle, liveEvents, onClose }) => {
       {/* Footer */}
       <div className="p-3 border-t border-border bg-surface-secondary">
         <div className="flex items-center justify-between text-xs text-text-secondary">
-          <span>Mise à jour: {formatTime(new Date())}</span>
+          <span>Mise à jour: {lastUpdate ? formatTime(lastUpdate) : formatTime(new Date())}</span>
           <div className="flex items-center space-x-1">
-            <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
-            <span>En direct</span>
+            {isConnected ? (
+              <>
+                <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
+                <span>En direct</span>
+              </>
+            ) : (
+              <>
+                <div className="w-2 h-2 bg-error rounded-full"></div>
+                <span>Déconnecté</span>
+              </>
+            )}
           </div>
         </div>
       </div>
     </div>
   );
+});
+
+// Add custom CSS for animation using useEffect to avoid duplicates
+const TelemetryPanelWithStyles = (props) => {
+  useEffect(() => {
+    // Check if the style already exists
+    const existingStyle = document.getElementById('telemetry-animations');
+    if (existingStyle) {
+      return;
+    }
+    
+    // Create style element
+    const style = document.createElement('style');
+    style.id = 'telemetry-animations';
+    style.textContent = `
+      @keyframes highlight-pulse {
+        0% { opacity: 0.8; }
+        50% { opacity: 0.4; }
+        100% { opacity: 0; }
+      }
+      
+      .animate-highlight-pulse {
+        animation: highlight-pulse 2s ease-in-out;
+      }
+      
+      .highlight-card {
+        position: relative;
+      }
+      
+      .highlight-card::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(79, 70, 229, 0.1);
+        animation: highlight-pulse 2s ease-in-out;
+        pointer-events: none;
+        z-index: 1;
+      }
+    `;
+    document.head.appendChild(style);
+    
+    // Cleanup function to remove style on unmount
+    return () => {
+      const styleToRemove = document.getElementById('telemetry-animations');
+      if (styleToRemove) {
+        styleToRemove.remove();
+      }
+    };
+  }, []);
+
+  return <TelemetryPanel {...props} />;
 };
 
-export default TelemetryPanel;
+export default React.memo(TelemetryPanelWithStyles);

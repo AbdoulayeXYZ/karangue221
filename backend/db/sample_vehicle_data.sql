@@ -1,0 +1,168 @@
+-- Ajouter des exemples de véhicules pour la flotte Dakar Dem Dikk
+-- Cette requête ajoute 5 véhicules différents avec toutes les données nécessaires
+
+-- Exécuter d'abord le script enhance_fleet_tables.sql pour créer la flotte
+
+-- Vérifier que la table vehicles a été mise à jour avec les nouvelles colonnes
+-- (le script alter_vehicles_table.sql doit être exécuté au préalable)
+
+-- Insérer des véhicules avec des données complètes
+INSERT INTO vehicles (
+    registration,
+    brand,
+    model,
+    year,
+    color,
+    status,
+    fleet_id,
+    imei_device,
+    type,
+    fuel_type,
+    tank_capacity,
+    mileage,
+    insurance_provider,
+    policy_number,
+    insurance_expiry,
+    insurance_coverage_type,
+    engine_details,
+    vin_number,
+    passenger_capacity,
+    last_maintenance_date,
+    next_maintenance_date,
+    technical_inspection_date,
+    technical_inspection_expiry
+) VALUES 
+-- Bus urbain standard
+(
+    'DK-3456-AA',
+    'Mercedes-Benz',
+    'Citaro',
+    2023,
+    'Bleu',
+    'active',
+    (SELECT id FROM fleets WHERE name = 'Dakar Dem Dikk'),
+    '351756108997001',
+    'Bus',
+    'diesel',
+    280,
+    5000,
+    'NSIA Assurances',
+    'POL-2023-MB1',
+    '2026-05-15',
+    'Tous risques',
+    '7.7L OM936 Euro 6',
+    'WDB9630031L739452',
+    '90',
+    '2025-03-15',
+    '2025-09-15',
+    '2025-01-15',
+    '2026-01-15'
+),
+
+-- Minibus pour les lignes secondaires
+(
+    'DK-5678-BB',
+    'Toyota',
+    'Coaster',
+    2022,
+    'Blanc',
+    'active',
+    (SELECT id FROM fleets WHERE name = 'Dakar Dem Dikk'),
+    '351756108997002',
+    'Minibus',
+    'diesel',
+    95,
+    12000,
+    'NSIA Assurances',
+    'POL-2022-TC1',
+    '2026-03-20',
+    'Tous risques',
+    '4.2L Diesel',
+    'JTGFB718501064573',
+    '29',
+    '2025-04-22',
+    '2025-10-22',
+    '2024-12-10',
+    '2025-12-10'
+),
+
+-- Bus articulé pour les lignes principales
+(
+    'DK-7890-CC',
+    'Volvo',
+    'B9LA',
+    2024,
+    'Rouge',
+    'active',
+    (SELECT id FROM fleets WHERE name = 'Dakar Dem Dikk'),
+    '351756108997003',
+    'Bus',
+    'diesel',
+    350,
+    2500,
+    'NSIA Assurances',
+    'POL-2024-VB1',
+    '2026-07-10',
+    'Tous risques',
+    '9.0L D9B',
+    'YV3R9L627EA159843',
+    '150',
+    '2025-06-05',
+    '2025-12-05',
+    '2025-05-20',
+    '2026-05-20'
+),
+
+-- Bus électrique (projet pilote)
+(
+    'DK-9012-DD',
+    'BYD',
+    'K9',
+    2024,
+    'Vert',
+    'active',
+    (SELECT id FROM fleets WHERE name = 'Dakar Dem Dikk'),
+    '351756108997004',
+    'Bus',
+    'electric',
+    0,
+    1200,
+    'NSIA Assurances',
+    'POL-2024-BYD1',
+    '2026-08-25',
+    'Tous risques',
+    '150kW Electric Motor',
+    'LZYYTDGE0L1000495',
+    '85',
+    '2025-05-30',
+    '2025-11-30',
+    '2025-04-15',
+    '2026-04-15'
+),
+
+-- Véhicule utilitaire pour maintenance
+(
+    'DK-1234-EE',
+    'Ford',
+    'Transit',
+    2021,
+    'Jaune',
+    'maintenance',
+    (SELECT id FROM fleets WHERE name = 'Dakar Dem Dikk'),
+    '351756108997005',
+    'Utilitaire',
+    'diesel',
+    80,
+    35000,
+    'NSIA Assurances',
+    'POL-2021-FT1',
+    '2025-11-30',
+    'Responsabilité civile',
+    '2.0L EcoBlue',
+    'WF0BXXTTGBKL94582',
+    '3',
+    '2025-02-10',
+    '2025-08-10',
+    '2024-10-05',
+    '2025-10-05'
+);

@@ -20,17 +20,34 @@ const VehicleSelector = ({ vehicles, selectedVehicle, onVehicleSelect }) => {
     }
   };
 
-  const getCameraStatusIcon = (cameraStatus) => {
-    switch (cameraStatus.status) {
-      case 'online': return cameraStatus.recording ? 'VideoIcon' : 'Video';
-      case 'offline': return 'VideoOff';
-      default: return 'Video';
-    }
+  const getCameraStatusIcon = (cameraType) => {
+    // Check if cameras array exists and has the specified camera type
+    if (!cameraType) return 'VideoOff';
+    
+    // For now, return a default icon since we don't have detailed camera status
+    return 'Video';
   };
 
-  const getCameraStatusColor = (cameraStatus) => {
-    if (cameraStatus.status === 'offline') return 'text-error';
-    return cameraStatus.recording ? 'text-success' : 'text-warning';
+  const getCameraStatusColor = (cameraType) => {
+    // Check if cameras array exists and has the specified camera type
+    if (!cameraType) return 'text-error';
+    
+    // For now, return a default color since we don't have detailed camera status
+    return 'text-success';
+  };
+
+  const hasCamera = (vehicle, cameraType) => {
+    return vehicle.cameras && Array.isArray(vehicle.cameras) && vehicle.cameras.includes(cameraType);
+  };
+
+  const formatLastUpdate = (lastUpdate) => {
+    if (!lastUpdate) return 'N/A';
+    try {
+      const date = new Date(lastUpdate);
+      return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    } catch (error) {
+      return 'N/A';
+    }
   };
 
   return (
@@ -56,17 +73,17 @@ const VehicleSelector = ({ vehicles, selectedVehicle, onVehicleSelect }) => {
               <div>
                 <div className="flex items-center space-x-2 mb-1">
                   <span className="font-medium text-text-primary text-sm">
-                    {vehicle.plateNumber}
+                    {vehicle.registration || 'N/A'}
                   </span>
                   <div className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusBg(vehicle.status)} ${getStatusColor(vehicle.status)}`}>
                     {vehicle.status === 'active' ? 'Actif' : vehicle.status === 'inactive' ? 'Inactif' : 'Hors ligne'}
                   </div>
                 </div>
                 <p className="text-xs text-text-secondary mb-1">
-                  {vehicle.driver}
+                  {vehicle.brand} {vehicle.model} ({vehicle.year})
                 </p>
                 <p className="text-xs text-text-secondary">
-                  {vehicle.location}
+                  {vehicle.type || 'Type non spécifié'}
                 </p>
               </div>
             </div>
@@ -76,30 +93,38 @@ const VehicleSelector = ({ vehicles, selectedVehicle, onVehicleSelect }) => {
               <div className="flex items-center space-x-3">
                 <div className="flex items-center space-x-1">
                   <Icon 
-                    name={getCameraStatusIcon(vehicle.cameras.driver)} 
+                    name={getCameraStatusIcon(hasCamera(vehicle, 'driver'))} 
                     size={12} 
-                    className={getCameraStatusColor(vehicle.cameras.driver)}
+                    className={getCameraStatusColor(hasCamera(vehicle, 'driver'))}
                   />
                   <span className="text-xs text-text-secondary">Conducteur</span>
                 </div>
                 <div className="flex items-center space-x-1">
                   <Icon 
-                    name={getCameraStatusIcon(vehicle.cameras.road)} 
+                    name={getCameraStatusIcon(hasCamera(vehicle, 'front'))} 
                     size={12} 
-                    className={getCameraStatusColor(vehicle.cameras.road)}
+                    className={getCameraStatusColor(hasCamera(vehicle, 'front'))}
                   />
                   <span className="text-xs text-text-secondary">Route</span>
+                </div>
+                <div className="flex items-center space-x-1">
+                  <Icon 
+                    name={getCameraStatusIcon(hasCamera(vehicle, 'rear'))} 
+                    size={12} 
+                    className={getCameraStatusColor(hasCamera(vehicle, 'rear'))}
+                  />
+                  <span className="text-xs text-text-secondary">Arrière</span>
                 </div>
               </div>
               
               <div className="text-xs text-text-secondary">
-                {vehicle.cameras.driver.quality}
+                {vehicle.cameras ? `${vehicle.cameras.length} caméra(s)` : 'Aucune caméra'}
               </div>
             </div>
 
             <div className="flex items-center justify-between mt-2 text-xs text-text-secondary">
               <span>Dernière MAJ:</span>
-              <span>{vehicle.lastUpdate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+              <span>{formatLastUpdate(vehicle.lastUpdate)}</span>
             </div>
           </button>
         ))}
@@ -116,9 +141,9 @@ const VehicleSelector = ({ vehicles, selectedVehicle, onVehicleSelect }) => {
           </div>
           <div className="p-2 bg-warning-50 rounded-base">
             <div className="text-lg font-semibold text-warning-700">
-              {vehicles.filter(v => v.cameras.driver.recording || v.cameras.road.recording).length}
+              {vehicles.filter(v => v.cameras && v.cameras.length > 0).length}
             </div>
-            <div className="text-xs text-warning-600">Enregistrent</div>
+            <div className="text-xs text-warning-600">Avec caméras</div>
           </div>
         </div>
       </div>

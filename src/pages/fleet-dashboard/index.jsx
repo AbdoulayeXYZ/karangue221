@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import Breadcrumb from 'components/ui/Breadcrumb';
 import SystemStatusIndicator from 'components/ui/SystemStatusIndicator';
 import Icon from 'components/AppIcon';
@@ -6,13 +6,10 @@ import FleetSummaryCards from './components/FleetSummaryCards';
 import InteractiveMap from './components/InteractiveMap';
 import RecentActivity from './components/RecentActivity';
 import QuickFilters from './components/QuickFilters';
-import useApiResource from 'hooks/useApiResource';
-import * as vehicleApi from 'services/api/vehicles';
-import * as driverApi from 'services/api/drivers';
-import * as incidentApi from 'services/api/incidents';
-import * as violationApi from 'services/api/violations';
-import * as telemetryApi from 'services/api/telemetry';
+import useFleetData from 'hooks/useFleetData';
+import useDashboardData from 'hooks/useDashboardData';
 import * as activityApi from 'services/api/activities';
+import useApiResource from 'hooks/useApiResource';
 
 const FleetDashboard = () => {
   // Filtres
@@ -21,18 +18,80 @@ const FleetDashboard = () => {
   const [selectedDriver, setSelectedDriver] = useState('all');
   const [mapView, setMapView] = useState('normal');
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
-  const [realTimeData, setRealTimeData] = useState({
-    lastUpdate: new Date(),
-    connectionStatus: 'connected'
+
+  // Récupération des données du tableau de bord (avec rafraîchissement auto toutes les 10 secondes)
+  const {
+    dashboardData = [],
+    loading: loadingDashboard,
+    error: dashboardError,
+    lastUpdated: dashboardLastUpdated,
+    refreshDashboard
+  } = useDashboardData({ 
+    autoRefresh: true, 
+    refreshInterval: 5000  // Reduce to 5 seconds for faster updates
   });
 
-  // Données dynamiques
-  const { data: vehicles = [], loading: loadingVehicles } = useApiResource({ getAll: vehicleApi.getVehicles });
-  const { data: drivers = [], loading: loadingDrivers } = useApiResource({ getAll: driverApi.getDrivers });
-  const { data: incidents = [], loading: loadingIncidents } = useApiResource({ getAll: incidentApi.getIncidents });
-  const { data: violations = [], loading: loadingViolations } = useApiResource({ getAll: violationApi.getViolations });
-  const { data: telemetry = [], loading: loadingTelemetry } = useApiResource({ getAll: telemetryApi.getTelemetry });
+  // Récupération des données en temps réel avec WebSocket
+  const { 
+    // Données de la flotte
+    vehicles = [],
+    drivers = [],
+    incidents = [],
+    violations = [],
+    telemetry = [],
+    lastUpdate,
+    isLoading,
+    
+    // État de connexion
+    isConnected,
+    isConnecting,
+    error,
+    reconnectAttempt,
+    
+    // Méthodes
+    refreshData,
+    connect,
+    disconnect
+  } = useFleetData();
+
+  // Récupération des activités avec l'API REST standard
   const { data: activities = [], loading: loadingActivities } = useApiResource({ getAll: activityApi.getActivities });
+
+  // Détermine si les données sont en cours de chargement
+  const isDataLoading = isLoading || loadingActivities || loadingDashboard;
+
+  // Détermine l'état de la connexion
+  const connectionStatus = error 
+    ? 'error' 
+    : isConnecting 
+      ? 'connecting' 
+      : isConnected 
+        ? 'connected' 
+        : 'disconnected';
+
+  // Fonction pour forcer le rafraîchissement des données
+  const handleRefreshData = useCallback(() => {
+    console.log('📊 Manual refresh triggered by user');
+    
+    // First refresh dashboard summary data
+    refreshDashboard().then(success => {
+      console.log(`Dashboard refresh ${success ? 'succeeded' : 'failed'}`);
+      
+      // Then refresh WebSocket data
+      console.log('Refreshing WebSocket data...');
+      refreshData();
+      
+      // Show a message to user that data is refreshing
+      alert('Rafraîchissement des données en cours...');
+    });
+  }, [refreshData, refreshDashboard]);
+
+  // Fonction pour reconnecter si déconnecté
+  const handleReconnect = useCallback(() => {
+    if (!isConnected && !isConnecting) {
+      connect();
+    }
+  }, [connect, isConnected, isConnecting]);
 
   // Filtres dynamiques
   const filteredVehicles = selectedVehicleStatus === 'all' ? vehicles : vehicles.filter(v => v.status === selectedVehicleStatus);
@@ -76,11 +135,49 @@ const FleetDashboard = () => {
           </div>
           
           <div className="flex items-center space-x-4">
-            <SystemStatusIndicator />
+            <SystemStatusIndicator 
+              status={connectionStatus}
+              statusText={
+                connectionStatus === 'connected' ? 'Connecté en temps réel' :
+                connectionStatus === 'connecting' ? 'Connexion en cours...' :
+                connectionStatus === 'disconnected' ? 'Déconnecté' :
+                'Erreur de connexion'
+              }
+            />
             
             <div className="hidden md:flex items-center space-x-2 text-sm text-text-secondary">
               <Icon name="Clock" size={16} />
-              <span>Dernière mise à jour: {realTimeData.lastUpdate.toLocaleTimeString('fr-FR')}</span>
+              <span>
+                Dernière mise à jour: {
+                  lastUpdate || dashboardLastUpdated 
+                    ? new Date(Math.max(
+                        lastUpdate ? lastUpdate.getTime() : 0,
+                        dashboardLastUpdated ? dashboardLastUpdated.getTime() : 0
+                      )).toLocaleTimeString('fr-FR')
+                    : 'Jamais'
+                }
+              </span>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleRefreshData}
+                className="p-2 rounded-full hover:bg-surface-secondary text-text-secondary hover:text-primary transition-colors"
+                title="Rafraîchir les données"
+                disabled={isConnecting}
+              >
+                <Icon name="RefreshCw" size={18} className={isConnecting ? 'animate-spin' : ''} />
+              </button>
+              
+              {connectionStatus === 'error' && (
+                <button
+                  onClick={handleReconnect}
+                  className="p-2 rounded-full bg-surface-warning hover:bg-warning/20 text-warning transition-colors"
+                  title="Tenter de se reconnecter"
+                >
+                  <Icon name="ZapOff" size={18} />
+                </button>
+              )}
             </div>
             
             <button
@@ -92,6 +189,28 @@ const FleetDashboard = () => {
             </button>
           </div>
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 p-4 bg-warning/10 border border-warning rounded-lg flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="rounded-full bg-warning/20 p-2 text-warning">
+                <Icon name="AlertTriangle" size={20} />
+              </div>
+              <div>
+                <h3 className="font-semibold text-text-primary">Problème de connexion</h3>
+                <p className="text-sm text-text-secondary">{error.message || 'Impossible de se connecter au serveur en temps réel.'}</p>
+              </div>
+            </div>
+            <button 
+              onClick={handleReconnect} 
+              className="px-4 py-2 bg-warning/10 hover:bg-warning/20 text-warning rounded-lg transition-colors"
+              disabled={isConnecting}
+            >
+              {isConnecting ? 'Connexion...' : 'Reconnecter'}
+            </button>
+          </div>
+        )}
 
         {/* Main Dashboard Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -105,7 +224,8 @@ const FleetDashboard = () => {
               telemetry={telemetry}
               timeRange={selectedTimeRange}
               vehicleStatus={selectedVehicleStatus}
-              loading={loadingVehicles || loadingDrivers || loadingIncidents || loadingTelemetry}
+              loading={isDataLoading}
+              dashboardData={dashboardData}
             />
           </div>
 
@@ -119,6 +239,26 @@ const FleetDashboard = () => {
                     <Icon name="Map" size={20} />
                     <span>Localisation en Temps Réel</span>
                   </h2>
+                  
+                  <div className="flex items-center space-x-2">
+                    {connectionStatus === 'connected' && (
+                      <span className="text-xs px-2 py-1 rounded-full bg-success/10 text-success flex items-center">
+                        <span className="h-2 w-2 rounded-full bg-success mr-1 animate-pulse"></span>
+                        Temps réel
+                      </span>
+                    )}
+                    {connectionStatus === 'connecting' && (
+                      <span className="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary flex items-center">
+                        <span className="h-2 w-2 rounded-full bg-primary mr-1 animate-pulse"></span>
+                        Connexion...
+                      </span>
+                    )}
+                    {connectionStatus === 'disconnected' && (
+                      <span className="text-xs px-2 py-1 rounded-full bg-text-secondary/10 text-text-secondary flex items-center">
+                        Mode hors ligne
+                      </span>
+                    )}
+                  </div>
                   
                   <div className="flex items-center space-x-2">
                     <button
@@ -157,17 +297,26 @@ const FleetDashboard = () => {
                 vehicleStatus={selectedVehicleStatus}
                 selectedDriver={selectedDriver}
                 timeRange={selectedTimeRange}
-                loading={loadingVehicles || loadingTelemetry}
+                loading={isDataLoading}
+                connectionStatus={connectionStatus}
               />
             </div>
 
             {/* Recent Activity Feed */}
             <div className="card">
               <div className="p-4 border-b border-border">
-                <h2 className="text-lg font-heading font-semibold text-text-primary flex items-center space-x-2">
-                  <Icon name="Activity" size={20} />
-                  <span>Activité Récente</span>
-                </h2>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-heading font-semibold text-text-primary flex items-center space-x-2">
+                    <Icon name="Activity" size={20} />
+                    <span>Activité Récente</span>
+                  </h2>
+                  
+                  {connectionStatus === 'connected' && (
+                    <span className="text-xs px-2 py-1 rounded-full bg-success/10 text-success">
+                      Temps réel
+                    </span>
+                  )}
+                </div>
               </div>
               
               <RecentActivity

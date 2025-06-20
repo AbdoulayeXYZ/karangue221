@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Icon from 'components/AppIcon';
+import { debounce } from 'lodash';
 
 const MapView = ({ 
   selectedVehicle, 
@@ -7,13 +8,22 @@ const MapView = ({
   mapMode, 
   onMapModeChange, 
   isPlaybackMode, 
-  onPlaybackModeChange 
+  onPlaybackModeChange,
+  loading,
+  lastUpdate,
+  updateFrequency,
+  onVehicleSelect = () => {}
 }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showGeofences, setShowGeofences] = useState(true);
   const [showTraffic, setShowTraffic] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [playbackPosition, setPlaybackPosition] = useState(0);
+  const [mapInstance, setMapInstance] = useState(null);
+  const [markers, setMarkers] = useState({});
+  const mapRef = useRef(null);
+  const lastRenderRef = useRef(Date.now());
+  const pendingUpdatesRef = useRef({});
 
   const mapModes = [
     { id: 'roadmap', label: 'Route', icon: 'Map' },
@@ -48,16 +58,197 @@ const MapView = ({
     }
   ];
 
+  // Initialize Google Map 
+  useEffect(() => {
+    // Only initialize the map if it doesn't exist yet and we're not in loading state
+    if (!mapInstance && !loading && mapRef.current) {
+      // Load Google Maps API dynamically if needed
+      if (!window.google || !window.google.maps) {
+        const script = document.createElement('script');
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.REACT_APP_GOOGLE_MAPS_API_KEY}&libraries=geometry`;
+        script.async = true;
+        script.defer = true;
+        script.onload = initializeMap;
+        document.head.appendChild(script);
+      } else {
+        initializeMap();
+      }
+    }
+    
+    function initializeMap() {
+      const map = new window.google.maps.Map(mapRef.current, {
+        center: selectedVehicle?.location?.lat 
+          ? { lat: selectedVehicle.location.lat, lng: selectedVehicle.location.lng }
+          : { lat: 14.6928, lng: -17.4467 },
+        zoom: 14,
+        mapTypeId: mapMode || 'roadmap',
+        streetViewControl: false,
+        mapTypeControl: false,
+        fullscreenControl: false
+      });
+      
+      // Save map instance to state
+      setMapInstance(map);
+    }
+    
+    // Cleanup function
+    return () => {
+      // Clean up markers if the component unmounts
+      if (markers) {
+        Object.values(markers).forEach(marker => marker.setMap(null));
+      }
+    };
+  }, [loading, mapInstance, mapMode, selectedVehicle]);
+  
+  // Update map type when mapMode changes
+  useEffect(() => {
+    if (mapInstance) {
+      mapInstance.setMapTypeId(mapMode);
+    }
+  }, [mapInstance, mapMode]);
+  
+  // Debounced update function for marker positions
+  const debouncedUpdateMarkers = useCallback(debounce((vehiclesToUpdate) => {
+    if (!mapInstance) return;
+    
+    const updatedMarkers = { ...markers };
+    const currentTime = Date.now();
+    
+    // Process all pending updates
+    const allUpdates = { ...pendingUpdatesRef.current, ...vehiclesToUpdate };
+    pendingUpdatesRef.current = {};
+    
+    Object.values(allUpdates).forEach(vehicle => {
+      if (!vehicle || !vehicle.location || !vehicle.id) return;
+      
+      const position = { 
+        lat: parseFloat(vehicle.location.lat), 
+        lng: parseFloat(vehicle.location.lng) 
+      };
+      
+      // Create or update marker
+      if (!updatedMarkers[vehicle.id]) {
+        // Create new marker
+        const marker = new window.google.maps.Marker({
+          position,
+          map: mapInstance,
+          title: vehicle.plateNumber,
+          icon: {
+            path: window.google.maps.SymbolPath.CIRCLE,
+            scale: 8,
+            fillColor: getVehicleStatusColor(vehicle.status),
+            fillOpacity: 0.8,
+            strokeWeight: 2,
+            strokeColor: 'white'
+          },
+          optimized: true,
+          zIndex: vehicle.status === 'active' ? 10 : 5
+        });
+        
+        // Add click listener
+        marker.addListener('click', () => {
+          if (vehicle !== selectedVehicle) {
+            onVehicleSelect(vehicle);
+          }
+        });
+        
+        updatedMarkers[vehicle.id] = marker;
+      } else {
+        // Just update position for existing marker
+        updatedMarkers[vehicle.id].setPosition(position);
+        
+        // Update icon based on status
+        updatedMarkers[vehicle.id].setIcon({
+          path: window.google.maps.SymbolPath.CIRCLE,
+          scale: 8,
+          fillColor: getVehicleStatusColor(vehicle.status),
+          fillOpacity: 0.8,
+          strokeWeight: 2,
+          strokeColor: 'white'
+        });
+        
+        // Animate if active
+        if (vehicle.status === 'active' && vehicle.speed > 0) {
+          updatedMarkers[vehicle.id].setAnimation(window.google.maps.Animation.BOUNCE);
+          setTimeout(() => {
+            if (updatedMarkers[vehicle.id]) {
+              updatedMarkers[vehicle.id].setAnimation(null);
+            }
+          }, 1500);
+        } else {
+          updatedMarkers[vehicle.id].setAnimation(null);
+        }
+      }
+    });
+    
+    // Update markers state
+    setMarkers(updatedMarkers);
+    lastRenderRef.current = currentTime;
+  }, 300), [mapInstance, markers, selectedVehicle, onVehicleSelect]);
+  
+  // Update vehicle markers when vehicles data changes
+  useEffect(() => {
+    if (!mapInstance || !vehicles || vehicles.length === 0) return;
+    
+    // Queue updates instead of applying them immediately
+    // This helps with high-frequency updates
+    const updates = {};
+    vehicles.forEach(vehicle => {
+      if (vehicle && vehicle.id) {
+        updates[vehicle.id] = vehicle;
+      }
+    });
+    
+    // Store in the pending updates ref
+    pendingUpdatesRef.current = { ...pendingUpdatesRef.current, ...updates };
+    
+    // Apply updates
+    debouncedUpdateMarkers(updates);
+  }, [vehicles, mapInstance, debouncedUpdateMarkers]);
+  
+  // Handle zooming to selected vehicle
+  useEffect(() => {
+    if (mapInstance && selectedVehicle && selectedVehicle.location) {
+      const position = { 
+        lat: parseFloat(selectedVehicle.location.lat), 
+        lng: parseFloat(selectedVehicle.location.lng) 
+      };
+      mapInstance.panTo(position);
+      mapInstance.setZoom(15);
+      
+      // Highlight the selected vehicle marker
+      if (markers[selectedVehicle.id]) {
+        markers[selectedVehicle.id].setZIndex(100);
+        markers[selectedVehicle.id].setIcon({
+          path: window.google.maps.SymbolPath.CIRCLE,
+          scale: 10,
+          fillColor: getVehicleStatusColor(selectedVehicle.status),
+          fillOpacity: 1,
+          strokeWeight: 3,
+          strokeColor: '#FFFFFF'
+        });
+      }
+    }
+  }, [selectedVehicle, mapInstance, markers]);
+  
   const handleFullscreenToggle = () => {
     setIsFullscreen(!isFullscreen);
   };
-
-  const handleZoomToVehicle = () => {
-    if (selectedVehicle) {
-      // Simulate zoom to vehicle location
-      console.log(`Zooming to vehicle ${selectedVehicle.id} at`, selectedVehicle.location);
+  
+  const handleZoomToVehicle = useCallback((vehicle) => {
+    if (mapInstance && vehicle && vehicle.location) {
+      const position = { 
+        lat: parseFloat(vehicle.location.lat), 
+        lng: parseFloat(vehicle.location.lng) 
+      };
+      mapInstance.panTo(position);
+      mapInstance.setZoom(16);
+      
+      if (vehicle !== selectedVehicle) {
+        onVehicleSelect(vehicle);
+      }
     }
-  };
+  }, [mapInstance, selectedVehicle, onVehicleSelect]);
 
   const handlePlaybackControl = (action) => {
     switch (action) {
@@ -224,34 +415,58 @@ const MapView = ({
 
       {/* Map Container */}
       <div className="flex-1 relative bg-surface-secondary">
-        {/* Google Maps Iframe */}
-        <iframe
-          width="100%"
-          height="100%"
-          loading="lazy"
-          title="Carte de suivi des véhicules"
-          referrerPolicy="no-referrer-when-downgrade"
-          src={`https://www.google.com/maps?q=${selectedVehicle?.location.lat || 14.6928},${selectedVehicle?.location.lng || -17.4467}&z=14&output=embed`}
-          className="w-full h-full rounded-none"
-        />
+        {loading ? (
+          <div className="w-full h-full flex items-center justify-center bg-surface-secondary">
+            <div className="text-center">
+              <div className="w-10 h-10 border-4 border-t-secondary rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="text-text-secondary">Chargement de la carte...</p>
+            </div>
+          </div>
+        ) : (
+          // Google Maps container div
+          <div 
+            ref={mapRef}
+            className="w-full h-full rounded-none"
+            aria-label="Carte de suivi des véhicules"
+          />
+        )}
 
         {/* Map Overlays */}
         <div className="absolute inset-0 pointer-events-none">
+          {loading && (
+            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black bg-opacity-30 text-white px-4 py-2 rounded-base">
+              <div className="flex items-center space-x-2">
+                <div className="w-4 h-4 border-2 border-t-white rounded-full animate-spin"></div>
+                <span>Mise à jour de la position...</span>
+              </div>
+            </div>
+          )}
+          
           {/* Vehicle Markers Overlay */}
           <div className="absolute top-4 left-4 bg-surface border border-border rounded-base shadow-elevation-2 p-3 pointer-events-auto">
             <h4 className="font-medium text-text-primary mb-2 text-sm">Véhicules Visibles</h4>
             <div className="space-y-2">
-              {vehicles.slice(0, 3).map((vehicle) => (
-                <div key={vehicle.id} className="flex items-center space-x-2 text-xs">
+              {vehicles && vehicles.length > 0 ? (
+                vehicles.slice(0, 3).map((vehicle) => (
                   <div 
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: getVehicleStatusColor(vehicle.status) }}
-                  ></div>
-                  <span className="text-text-primary font-medium">{vehicle.plateNumber}</span>
-                  <span className="text-text-secondary">{vehicle.speed} km/h</span>
+                    key={vehicle.id} 
+                    className="flex items-center space-x-2 text-xs cursor-pointer hover:bg-surface-secondary p-1 rounded"
+                    onClick={() => handleZoomToVehicle(vehicle)}
+                  >
+                    <div 
+                      className={`w-3 h-3 rounded-full ${vehicle.status === 'active' ? 'animate-pulse' : ''}`}
+                      style={{ backgroundColor: getVehicleStatusColor(vehicle.status) }}
+                    ></div>
+                    <span className="text-text-primary font-medium">{vehicle.plateNumber}</span>
+                    <span className="text-text-secondary">{vehicle.speed} km/h</span>
+                  </div>
+                ))
+              ) : (
+                <div className="text-xs text-text-secondary">
+                  Aucun véhicule disponible
                 </div>
-              ))}
-              {vehicles.length > 3 && (
+              )}
+              {vehicles && vehicles.length > 3 && (
                 <p className="text-xs text-text-secondary">
                   +{vehicles.length - 3} autres véhicules
                 </p>
@@ -315,10 +530,25 @@ const MapView = ({
             <button className="w-10 h-10 bg-surface border border-border rounded-base shadow-elevation-1 flex items-center justify-center hover:bg-surface-secondary transition-colors duration-150">
               <Icon name="Minus" size={16} className="text-text-primary" />
             </button>
-            <button className="w-10 h-10 bg-surface border border-border rounded-base shadow-elevation-1 flex items-center justify-center hover:bg-surface-secondary transition-colors duration-150">
+            <button 
+              className="w-10 h-10 bg-surface border border-border rounded-base shadow-elevation-1 flex items-center justify-center hover:bg-surface-secondary transition-colors duration-150"
+              onClick={() => {
+                if (mapInstance && selectedVehicle && selectedVehicle.location) {
+                  handleZoomToVehicle(selectedVehicle);
+                }
+              }}
+            >
               <Icon name="RotateCcw" size={16} className="text-text-primary" />
             </button>
           </div>
+          
+          {/* Real-time Update Indicator */}
+          {updateFrequency === 'real-time' && !loading && lastUpdate && (
+            <div className="absolute bottom-16 right-4 bg-success-100 text-success px-3 py-1 rounded-full text-xs font-medium flex items-center shadow-elevation-1">
+              <div className="w-2 h-2 bg-success rounded-full mr-2 animate-pulse"></div>
+              <span>Suivi en temps réel</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -326,9 +556,16 @@ const MapView = ({
       <div className="p-3 border-t border-border bg-surface-secondary">
         <div className="flex items-center justify-between text-xs text-text-secondary">
           <div className="flex items-center space-x-4">
-            <span>Dernière mise à jour: {new Date().toLocaleTimeString('fr-FR')}</span>
+            <span>
+              Dernière mise à jour: {lastUpdate ? lastUpdate.toLocaleTimeString('fr-FR') : 'Aucune mise à jour'}
+              {updateFrequency === 'real-time' && (
+                <span className="ml-2 px-2 py-0.5 bg-success-100 text-success rounded-full text-xs">
+                  Temps réel
+                </span>
+              )}
+            </span>
             <span>•</span>
-            <span>{vehicles.length} véhicules affichés</span>
+            <span>{vehicles ? vehicles.length : 0} véhicules affichés</span>
           </div>
           
           <div className="flex items-center space-x-2">

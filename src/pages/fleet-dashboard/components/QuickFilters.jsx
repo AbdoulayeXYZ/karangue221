@@ -1,7 +1,11 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import Icon from 'components/AppIcon';
 
 const QuickFilters = ({ 
+  vehicles = [],
+  drivers = [],
+  incidents = [],
+  violations = [],
   selectedTimeRange, 
   selectedVehicleStatus, 
   selectedDriver, 
@@ -15,34 +19,56 @@ const QuickFilters = ({
     { value: 'custom', label: 'Personnalisé', icon: 'CalendarRange' }
   ];
 
-  const vehicleStatusOptions = [
-    { value: 'all', label: 'Tous les véhicules', icon: 'Truck', count: 135 },
-    { value: 'moving', label: 'En mouvement', icon: 'Navigation', count: 89 },
-    { value: 'idle', label: 'À l\'arrêt', icon: 'Clock', count: 38 },
-    { value: 'warning', label: 'Alertes', icon: 'AlertTriangle', count: 8 },
-    { value: 'offline', label: 'Hors ligne', icon: 'WifiOff', count: 0 }
-  ];
+  // Options de statut des véhicules calculées dynamiquement à partir des données réelles
+  const vehicleStatusOptions = useMemo(() => [
+    { value: 'all', label: 'Tous les véhicules', icon: 'Truck', count: vehicles.length },
+    { value: 'moving', label: 'En mouvement', icon: 'Navigation', count: vehicles.filter(v => v.status === 'moving').length },
+    { value: 'idle', label: 'À l\'arrêt', icon: 'Clock', count: vehicles.filter(v => v.status === 'idle').length },
+    { value: 'warning', label: 'Alertes', icon: 'AlertTriangle', count: vehicles.filter(v => v.status === 'warning').length },
+    { value: 'offline', label: 'Hors ligne', icon: 'WifiOff', count: vehicles.filter(v => v.status === 'offline').length }
+  ], [vehicles]);
 
-  const driverOptions = [
-    { value: 'all', label: 'Tous les conducteurs' },
-    { value: 'Amadou Diallo', label: 'Amadou Diallo' },
-    { value: 'Fatou Sow', label: 'Fatou Sow' },
-    { value: 'Ousmane Ba', label: 'Ousmane Ba' },
-    { value: 'Aïssatou Diop', label: 'Aïssatou Diop' },
-    { value: 'Mamadou Ndiaye', label: 'Mamadou Ndiaye' },
-    { value: 'Moussa Diagne', label: 'Moussa Diagne' },
-    { value: 'Khadija Fall', label: 'Khadija Fall' },
-    { value: 'Ibrahima Sarr', label: 'Ibrahima Sarr' }
-  ];
+  // Options de conducteurs générées dynamiquement à partir des données réelles
+  const driverOptions = useMemo(() => {
+    const allDriversOption = [{ value: 'all', label: 'Tous les conducteurs' }];
+    const uniqueDrivers = drivers.length > 0
+      ? [...new Set(drivers.map(driver => driver.name || driver.id))].map(name => ({
+          value: name,
+          label: name
+        }))
+      : [
+          { value: 'Amadou Diallo', label: 'Amadou Diallo' },
+          { value: 'Fatou Sow', label: 'Fatou Sow' },
+          { value: 'Ousmane Ba', label: 'Ousmane Ba' },
+          { value: 'Aïssatou Diop', label: 'Aïssatou Diop' },
+          { value: 'Mamadou Ndiaye', label: 'Mamadou Ndiaye' },
+          { value: 'Moussa Diagne', label: 'Moussa Diagne' },
+          { value: 'Khadija Fall', label: 'Khadija Fall' },
+          { value: 'Ibrahima Sarr', label: 'Ibrahima Sarr' }
+        ];
+    
+    return [...allDriversOption, ...uniqueDrivers];
+  }, [drivers]);
 
-  const alertTypes = [
-    { type: 'speed_violation', label: 'Excès de vitesse', count: 12, color: 'text-error' },
-    { type: 'harsh_braking', label: 'Freinage brusque', count: 8, color: 'text-warning' },
-    { type: 'adas_alert', label: 'Alertes ADAS', count: 5, color: 'text-warning' },
-    { type: 'dms_alert', label: 'Alertes DMS', count: 3, color: 'text-error' },
-    { type: 'geofence', label: 'Géofences', count: 2, color: 'text-secondary' },
-    { type: 'maintenance', label: 'Maintenance', count: 7, color: 'text-accent' }
-  ];
+  // Résumé des alertes calculé dynamiquement à partir des données d'incidents et de violations
+  const alertTypes = useMemo(() => {
+    // Compter les différents types d'alertes dans les incidents et violations
+    const speedViolations = violations.filter(v => v.type === 'speed').length;
+    const harshBrakingCount = incidents.filter(i => i.type === 'harsh_braking').length;
+    const adasAlertCount = incidents.filter(i => i.type?.includes('adas')).length;
+    const dmsAlertCount = incidents.filter(i => i.type?.includes('dms')).length;
+    const geofenceCount = incidents.filter(i => i.type?.includes('geofence')).length;
+    const maintenanceCount = vehicles.filter(v => v.status === 'maintenance').length;
+    
+    return [
+      { type: 'speed_violation', label: 'Excès de vitesse', count: speedViolations, color: 'text-error' },
+      { type: 'harsh_braking', label: 'Freinage brusque', count: harshBrakingCount, color: 'text-warning' },
+      { type: 'adas_alert', label: 'Alertes ADAS', count: adasAlertCount, color: 'text-warning' },
+      { type: 'dms_alert', label: 'Alertes DMS', count: dmsAlertCount, color: 'text-error' },
+      { type: 'geofence', label: 'Géofences', count: geofenceCount, color: 'text-secondary' },
+      { type: 'maintenance', label: 'Maintenance', count: maintenanceCount, color: 'text-accent' }
+    ];
+  }, [incidents, violations, vehicles]);
 
   return (
     <div className="space-y-6">
@@ -192,11 +218,16 @@ const QuickFilters = ({
         <div className="space-y-2 text-xs text-text-secondary">
           <div className="flex justify-between">
             <span>Dernière synchronisation:</span>
-            <span className="font-data">{new Date().toLocaleTimeString('fr-FR')}</span>
+            <span className="font-data flex items-center">
+              {new Date().toLocaleTimeString('fr-FR')}
+              <span className="ml-1 h-2 w-2 rounded-full bg-success animate-pulse"></span>
+            </span>
           </div>
           <div className="flex justify-between">
             <span>Dispositifs connectés:</span>
-            <span className="font-data">127/135</span>
+            <span className="font-data">
+              {vehicles.filter(v => v.status !== 'offline').length}/{vehicles.length}
+            </span>
           </div>
           <div className="flex justify-between">
             <span>Latence moyenne:</span>

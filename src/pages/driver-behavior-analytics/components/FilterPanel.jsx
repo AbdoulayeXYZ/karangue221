@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Icon from 'components/AppIcon';
+import * as driverAnalyticsApi from 'services/api/driverAnalytics';
 
 const FilterPanel = ({ 
   dateRange, 
@@ -20,14 +21,38 @@ const FilterPanel = ({
     { value: 'custom', label: 'Période personnalisée' }
   ];
 
-  const violationTypes = [
-    { value: 'speeding', label: 'Excès de vitesse', icon: 'Gauge' },
-    { value: 'harsh_braking', label: 'Freinage brusque', icon: 'AlertTriangle' },
-    { value: 'harsh_acceleration', label: 'Accélération brusque', icon: 'TrendingUp' },
-    { value: 'sharp_cornering', label: 'Virages serrés', icon: 'RotateCcw' },
-    { value: 'fatigue', label: 'Fatigue détectée', icon: 'Eye' },
-    { value: 'distraction', label: 'Distraction', icon: 'Smartphone' }
-  ];
+  // État pour stocker les types de violations chargés depuis l'API
+  const [violationTypes, setViolationTypes] = useState([]);
+  const [loadingTypes, setLoadingTypes] = useState(true);
+  const [errorTypes, setErrorTypes] = useState(null);
+  
+  // Charger les types de violations depuis l'API
+  useEffect(() => {
+    const fetchViolationTypes = async () => {
+      try {
+        setLoadingTypes(true);
+        setErrorTypes(null);
+        const types = await driverAnalyticsApi.getViolationTypes();
+        setViolationTypes(types);
+      } catch (error) {
+        console.error('Erreur lors du chargement des types de violations:', error);
+        setErrorTypes(error.message || 'Impossible de charger les types de violations');
+        // Fallback to default types if API fails
+        setViolationTypes([
+          { value: 'speeding', label: 'Excès de vitesse', icon: 'Gauge' },
+          { value: 'harsh_braking', label: 'Freinage brusque', icon: 'AlertTriangle' },
+          { value: 'harsh_acceleration', label: 'Accélération brusque', icon: 'TrendingUp' },
+          { value: 'sharp_cornering', label: 'Virages serrés', icon: 'RotateCcw' },
+          { value: 'fatigue', label: 'Fatigue détectée', icon: 'Eye' },
+          { value: 'distraction', label: 'Distraction', icon: 'Smartphone' }
+        ]);
+      } finally {
+        setLoadingTypes(false);
+      }
+    };
+    
+    fetchViolationTypes();
+  }, []);
 
   const severityLevels = [
     { value: 'all', label: 'Toutes les gravités' },
@@ -118,18 +143,47 @@ const FilterPanel = ({
       <div className="card p-6">
         <h4 className="font-medium text-text-primary mb-4">Types de Violations</h4>
         <div className="space-y-3">
-          {violationTypes.map((type) => (
-            <label key={type.value} className="flex items-center space-x-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={selectedViolationTypes.includes(type.value)}
-                onChange={() => handleViolationTypeToggle(type.value)}
-                className="w-4 h-4 text-secondary border-border rounded focus:ring-2 focus:ring-secondary-500"
-              />
-              <Icon name={type.icon} size={16} className="text-text-secondary" />
-              <span className="text-sm text-text-primary">{type.label}</span>
-            </label>
-          ))}
+          {loadingTypes ? (
+            <div className="flex items-center justify-center py-4">
+              <Icon name="Loader2" size={24} className="text-secondary animate-spin" />
+              <span className="ml-2 text-sm text-text-secondary">Chargement des types...</span>
+            </div>
+          ) : errorTypes ? (
+            <div className="flex flex-col items-center justify-center py-4 text-center">
+              <Icon name="AlertCircle" size={24} className="text-error mb-2" />
+              <p className="text-sm text-text-secondary mb-2">{errorTypes}</p>
+              <button 
+                onClick={() => {
+                  setLoadingTypes(true);
+                  driverAnalyticsApi.getViolationTypes()
+                    .then(types => {
+                      setViolationTypes(types);
+                      setErrorTypes(null);
+                    })
+                    .catch(err => setErrorTypes(err.message))
+                    .finally(() => setLoadingTypes(false));
+                }}
+                className="text-sm text-secondary hover:underline"
+              >
+                Réessayer
+              </button>
+            </div>
+          ) : violationTypes.length === 0 ? (
+            <p className="text-sm text-text-secondary py-2">Aucun type de violation disponible</p>
+          ) : (
+            violationTypes.map((type) => (
+              <label key={type.value} className="flex items-center space-x-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedViolationTypes.includes(type.value)}
+                  onChange={() => handleViolationTypeToggle(type.value)}
+                  className="w-4 h-4 text-secondary border-border rounded focus:ring-2 focus:ring-secondary-500"
+                />
+                <Icon name={type.icon} size={16} className="text-text-secondary" />
+                <span className="text-sm text-text-primary">{type.label}</span>
+              </label>
+            ))
+          )}
         </div>
       </div>
 
@@ -187,15 +241,84 @@ const FilterPanel = ({
       <div className="card p-6">
         <h4 className="font-medium text-text-primary mb-4">Export</h4>
         <div className="space-y-3">
-          <button className="w-full flex items-center space-x-2 p-3 text-left text-sm text-text-primary hover:bg-surface-secondary rounded-base transition-colors duration-150">
+          <button 
+            onClick={() => {
+              const driverId = document.location.pathname.split('/').pop();
+              if (!driverId) return;
+              
+              driverAnalyticsApi.exportPDFReport(driverId)
+                .then(blob => {
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.style.display = 'none';
+                  a.href = url;
+                  a.download = `rapport_conducteur_${driverId}_${new Date().toISOString().split('T')[0]}.pdf`;
+                  document.body.appendChild(a);
+                  a.click();
+                  window.URL.revokeObjectURL(url);
+                })
+                .catch(error => {
+                  console.error('Erreur lors de l\'export PDF:', error);
+                  alert('Erreur lors de la génération du rapport PDF');
+                });
+            }}
+            className="w-full flex items-center space-x-2 p-3 text-left text-sm text-text-primary hover:bg-surface-secondary rounded-base transition-colors duration-150"
+          >
             <Icon name="FileText" size={16} className="text-text-secondary" />
             <span>Rapport PDF</span>
           </button>
-          <button className="w-full flex items-center space-x-2 p-3 text-left text-sm text-text-primary hover:bg-surface-secondary rounded-base transition-colors duration-150">
+          <button 
+            onClick={() => {
+              const driverId = document.location.pathname.split('/').pop();
+              if (!driverId) return;
+              
+              driverAnalyticsApi.exportCSVData(driverId)
+                .then(blob => {
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.style.display = 'none';
+                  a.href = url;
+                  a.download = `violations_conducteur_${driverId}_${new Date().toISOString().split('T')[0]}.csv`;
+                  document.body.appendChild(a);
+                  a.click();
+                  window.URL.revokeObjectURL(url);
+                })
+                .catch(error => {
+                  console.error('Erreur lors de l\'export CSV:', error);
+                  alert('Erreur lors de l\'export des données CSV');
+                });
+            }}
+            className="w-full flex items-center space-x-2 p-3 text-left text-sm text-text-primary hover:bg-surface-secondary rounded-base transition-colors duration-150"
+          >
             <Icon name="Download" size={16} className="text-text-secondary" />
             <span>Données CSV</span>
           </button>
-          <button className="w-full flex items-center space-x-2 p-3 text-left text-sm text-text-primary hover:bg-surface-secondary rounded-base transition-colors duration-150">
+          <button 
+            onClick={() => {
+              const driverId = document.location.pathname.split('/').pop();
+              if (!driverId) return;
+              
+              const email = prompt('Entrez l\'adresse email pour recevoir le rapport:');
+              if (!email) return;
+              
+              // Validation simple de l'email
+              const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+              if (!emailRegex.test(email)) {
+                alert('Adresse email invalide');
+                return;
+              }
+              
+              driverAnalyticsApi.emailReport(driverId, email)
+                .then(response => {
+                  alert(`Rapport envoyé avec succès à ${email}`);
+                })
+                .catch(error => {
+                  console.error('Erreur lors de l\'envoi du rapport par email:', error);
+                  alert('Erreur lors de l\'envoi du rapport par email');
+                });
+            }}
+            className="w-full flex items-center space-x-2 p-3 text-left text-sm text-text-primary hover:bg-surface-secondary rounded-base transition-colors duration-150"
+          >
             <Icon name="Mail" size={16} className="text-text-secondary" />
             <span>Envoyer par Email</span>
           </button>

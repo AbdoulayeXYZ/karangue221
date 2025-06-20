@@ -44,18 +44,18 @@ const VehicleManagement = () => {
   }, []);
 
   const filteredVehicles = vehicles.filter(vehicle => {
-    const matchesSearch = vehicle.licensePlate.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         vehicle.make.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         vehicle.model.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (vehicle.driver?.name.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesSearch = (vehicle.registration?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         vehicle.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         vehicle.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         vehicle.type?.toLowerCase().includes(searchTerm.toLowerCase()));
     
     const matchesStatus = statusFilter === 'all' || vehicle.status === statusFilter;
-    const matchesLocation = locationFilter === 'all' || vehicle.location.includes(locationFilter);
+    const matchesLocation = locationFilter === 'all' || (vehicle.location && vehicle.location.includes(locationFilter));
     
     let matchesDevice = true;
     if (deviceFilter !== 'all') {
       const deviceKey = deviceFilter.toLowerCase().replace('é', 'e');
-      matchesDevice = vehicle.devices[deviceKey]?.status === 'connected';
+      matchesDevice = vehicle.devices && vehicle.devices[deviceKey]?.status === 'connected';
     }
 
     return matchesSearch && matchesStatus && matchesLocation && matchesDevice;
@@ -81,9 +81,15 @@ const VehicleManagement = () => {
     setSelectedVehicles(vehicleIds);
   };
 
-  const handleAddVehicle = (vehicleData) => {
-    console.log('Adding vehicle:', vehicleData);
-    setIsAddModalOpen(false);
+  const handleAddVehicle = async (vehicleData) => {
+    try {
+      await createVehicle(vehicleData);
+      fetchAll(); // Refresh the vehicle list
+      setIsAddModalOpen(false);
+    } catch (error) {
+      console.error('Error adding vehicle:', error);
+      // Handle error (show notification, etc.)
+    }
   };
 
   const handleBulkOperation = (operation, data) => {

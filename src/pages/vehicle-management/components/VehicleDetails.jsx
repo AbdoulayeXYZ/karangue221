@@ -65,7 +65,7 @@ const VehicleDetails = ({ vehicle }) => {
           <div className="w-full h-48 bg-surface-secondary rounded-base overflow-hidden mb-4">
             <Image
               src={vehicle.image}
-              alt={`${vehicle.make} ${vehicle.model}`}
+              alt={`${vehicle.brand} ${vehicle.model}`}
               className="w-full h-full object-cover"
             />
           </div>
@@ -87,11 +87,11 @@ const VehicleDetails = ({ vehicle }) => {
             <div className="space-y-3">
               <div className="flex justify-between">
                 <span className="text-text-secondary">Plaque d'immatriculation:</span>
-                <span className="font-medium text-text-primary">{vehicle.licensePlate}</span>
+                <span className="font-medium text-text-primary">{vehicle.registration}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-text-secondary">Marque:</span>
-                <span className="font-medium text-text-primary">{vehicle.make}</span>
+                <span className="font-medium text-text-primary">{vehicle.brand}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-text-secondary">Modèle:</span>
@@ -108,8 +108,16 @@ const VehicleDetails = ({ vehicle }) => {
               <div className="flex justify-between">
                 <span className="text-text-secondary">Kilométrage:</span>
                 <span className="font-medium text-text-primary">
-                  {vehicle.specifications.mileage.toLocaleString('fr-FR')} km
+                  {(vehicle.mileage || 0).toLocaleString('fr-FR')} km
                 </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-text-secondary">Couleur:</span>
+                <span className="font-medium text-text-primary">{vehicle.color}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-text-secondary">IMEI:</span>
+                <span className="font-medium text-text-primary">{vehicle.imei_device}</span>
               </div>
             </div>
           </div>
@@ -129,9 +137,9 @@ const VehicleDetails = ({ vehicle }) => {
                 <Icon name="User" size={20} className="text-primary" />
               </div>
               <div>
-                <p className="font-medium text-text-primary">{vehicle.driver.name}</p>
-                <p className="text-sm text-text-secondary">iButton: {vehicle.driver.iButtonId}</p>
-                <p className="text-sm text-text-secondary">{vehicle.driver.phone}</p>
+                <p className="font-medium text-text-primary">{vehicle.driver.name || 'Nom non disponible'}</p>
+                <p className="text-sm text-text-secondary">iButton: {vehicle.driver.iButtonId || 'Non assigné'}</p>
+                <p className="text-sm text-text-secondary">{vehicle.driver.phone || 'Téléphone non disponible'}</p>
               </div>
             </div>
             <button className="text-sm text-secondary hover:text-secondary-700 font-medium">
@@ -159,20 +167,20 @@ const VehicleDetails = ({ vehicle }) => {
           <div className="space-y-3">
             <div className="flex justify-between">
               <span className="text-text-secondary">Assureur:</span>
-              <span className="font-medium text-text-primary">{vehicle.insurance.provider}</span>
+              <span className="font-medium text-text-primary">{vehicle.insurance?.provider || 'Non renseigné'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-text-secondary">Police:</span>
-              <span className="font-medium text-text-primary">{vehicle.insurance.policyNumber}</span>
+              <span className="font-medium text-text-primary">{vehicle.insurance?.policyNumber || 'Non renseigné'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-text-secondary">Couverture:</span>
-              <span className="font-medium text-text-primary">{vehicle.insurance.coverage}</span>
+              <span className="font-medium text-text-primary">{vehicle.insurance?.coverage || 'Non renseigné'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-text-secondary">Expiration:</span>
               <span className="font-medium text-text-primary">
-                {formatDate(vehicle.insurance.expiryDate)}
+                {vehicle.insurance_expiry ? formatDate(new Date(vehicle.insurance_expiry)) : 'Non renseigné'}
               </span>
             </div>
           </div>
@@ -187,28 +195,23 @@ const VehicleDetails = ({ vehicle }) => {
             <div className="flex justify-between">
               <span className="text-text-secondary">Dernier service:</span>
               <span className="font-medium text-text-primary">
-                {formatDate(vehicle.maintenance.lastService)}
+                {vehicle.last_maintenance_date ? formatDate(new Date(vehicle.last_maintenance_date)) : 'Non renseigné'}
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-text-secondary">Prochain service:</span>
               <span className="font-medium text-text-primary">
-                {formatDate(vehicle.maintenance.nextService)}
+                {vehicle.next_maintenance_date ? formatDate(new Date(vehicle.next_maintenance_date)) : 'Non renseigné'}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-text-secondary">Intervalle:</span>
+              <span className="text-text-secondary">Type de carburant:</span>
+              <span className="font-medium text-text-primary">{vehicle.fuel_type || 'Non renseigné'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-text-secondary">Capacité réservoir:</span>
               <span className="font-medium text-text-primary">
-                {vehicle.maintenance.serviceInterval.toLocaleString('fr-FR')} km
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-text-secondary">Statut:</span>
-              <span className={`font-medium ${
-                vehicle.maintenance.status === 'À jour' ? 'text-success' :
-                vehicle.maintenance.status === 'En cours' ? 'text-warning' : 'text-error'
-              }`}>
-                {vehicle.maintenance.status}
+                {vehicle.tank_capacity ? `${vehicle.tank_capacity}L` : 'Non renseigné'}
               </span>
             </div>
           </div>
@@ -220,68 +223,83 @@ const VehicleDetails = ({ vehicle }) => {
   const renderDevicesTab = () => (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {Object.entries(vehicle.devices).map(([deviceType, device]) => (
-          <div key={deviceType} className="card p-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-text-primary flex items-center space-x-2">
-                <Icon 
-                  name={deviceType === 'gps' ? 'MapPin' : 
-                        deviceType === 'adas' ? 'Shield' :
-                        deviceType === 'dms' ? 'Eye' : 'Video'} 
-                  size={20} 
-                />
-                <span>{deviceType.toUpperCase()}</span>
-              </h3>
-              <span className={`status-indicator ${
-                device.status === 'connected' ? 'status-success' :
-                device.status === 'warning' ? 'status-warning' : 'status-error'
-              }`}>
-                {device.status === 'connected' ? 'Connecté' :
-                 device.status === 'warning' ? 'Attention' : 'Hors ligne'}
-              </span>
-            </div>
+        {vehicle.devices ? (
+          Object.entries(vehicle.devices).map(([deviceType, device]) => (
+            <div key={deviceType} className="card p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-text-primary flex items-center space-x-2">
+                  <Icon 
+                    name={deviceType === 'gps' ? 'MapPin' : 
+                          deviceType === 'adas' ? 'Shield' :
+                          deviceType === 'dms' ? 'Eye' : 'Video'} 
+                    size={20} 
+                  />
+                  <span>{deviceType.toUpperCase()}</span>
+                </h3>
+                <span className={`status-indicator ${
+                  device.status === 'connected' ? 'status-success' :
+                  device.status === 'warning' ? 'status-warning' : 'status-error'
+                }`}>
+                  {device.status === 'connected' ? 'Connecté' :
+                   device.status === 'warning' ? 'Attention' : 'Hors ligne'}
+                </span>
+              </div>
 
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-text-secondary">Force du signal:</span>
-                <div className="flex items-center space-x-2">
-                  <span className={`font-medium ${getDeviceStatusColor(device)}`}>
-                    {device.signalStrength}%
-                  </span>
-                  <div className="w-16 h-2 bg-border rounded-full overflow-hidden">
-                    <div 
-                      className={`h-full transition-all duration-300 ${
-                        device.signalStrength >= 80 ? 'bg-success' :
-                        device.signalStrength >= 60 ? 'bg-warning' : 'bg-error'
-                      }`}
-                      style={{ width: `${device.signalStrength}%` }}
-                    ></div>
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-text-secondary">Force du signal:</span>
+                  <div className="flex items-center space-x-2">
+                    <span className={`font-medium ${getDeviceStatusColor(device)}`}>
+                      {device.signalStrength || 0}%
+                    </span>
+                    <div className="w-16 h-2 bg-border rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full transition-all duration-300 ${
+                          (device.signalStrength || 0) >= 80 ? 'bg-success' :
+                          (device.signalStrength || 0) >= 60 ? 'bg-warning' : 'bg-error'
+                        }`}
+                        style={{ width: `${device.signalStrength || 0}%` }}
+                      ></div>
+                    </div>
                   </div>
                 </div>
-              </div>
-              
-              <div className="flex justify-between">
-                <span className="text-text-secondary">Dernière communication:</span>
-                <span className="font-medium text-text-primary font-data">
-                  {formatDateTime(device.lastUpdate)}
-                </span>
+                
+                <div className="flex justify-between">
+                  <span className="text-text-secondary">Dernière communication:</span>
+                  <span className="font-medium text-text-primary font-data">
+                    {device.lastUpdate ? formatDateTime(new Date(device.lastUpdate)) : 'Jamais'}
+                  </span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-text-secondary">Version firmware:</span>
+                  <span className="font-medium text-text-primary font-data">
+                    v2.4.{Math.floor(Math.random() * 10)}
+                  </span>
+                </div>
               </div>
 
-              <div className="flex justify-between">
-                <span className="text-text-secondary">Version firmware:</span>
-                <span className="font-medium text-text-primary font-data">
-                  v2.4.{Math.floor(Math.random() * 10)}
-                </span>
+              <div className="mt-4 pt-4 border-t border-border">
+                <button className="text-sm text-secondary hover:text-secondary-700 font-medium">
+                  Configurer l'équipement
+                </button>
               </div>
             </div>
-
-            <div className="mt-4 pt-4 border-t border-border">
-              <button className="text-sm text-secondary hover:text-secondary-700 font-medium">
-                Configurer l'équipement
-              </button>
-            </div>
+          ))
+        ) : (
+          <div className="col-span-2 text-center py-8">
+            <Icon name="Smartphone" size={48} className="text-text-tertiary mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-text-primary mb-2">
+              Aucun équipement configuré
+            </h3>
+            <p className="text-text-secondary mb-4">
+              Aucun équipement n'est actuellement configuré pour ce véhicule
+            </p>
+            <button className="btn-secondary">
+              Ajouter un équipement
+            </button>
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
@@ -462,7 +480,7 @@ const VehicleDetails = ({ vehicle }) => {
               {vehicle.licensePlate}
             </h2>
             <p className="text-text-secondary">
-              {vehicle.make} {vehicle.model} ({vehicle.year})
+              {vehicle.brand} {vehicle.model} ({vehicle.year})
             </p>
           </div>
           <div className="flex items-center space-x-2">
