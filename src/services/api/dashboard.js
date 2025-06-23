@@ -108,6 +108,8 @@ export async function getDashboardSummary() {
       console.log(`📊 Dashboard data is an array with ${data.length} items`);
       if (data.length > 0) {
         console.log('📊 First item structure:', Object.keys(data[0]));
+      } else {
+        console.warn('⚠️ Dashboard data array is empty - this may indicate no fleets exist or refresh is needed');
       }
     } else {
       console.log('📊 Dashboard data is not an array, structure:', Object.keys(data || {}));

@@ -8,6 +8,8 @@
     "dev": "nodemon app.js",
     "migrate": "node scripts/runMigrations.js",
     "create-users": "mysql -u root -p karangue221 < migrations/add_default_users.sql",
+    "create-admin": "node scripts/create-admin-user.js",
+    "create-admin-sql": "mysql -u root -p karangue221 < scripts/create-admin-user.sql",
     "test": "jest"
   },
   "dependencies": {

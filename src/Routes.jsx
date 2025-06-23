@@ -3,6 +3,7 @@ import { BrowserRouter, Routes as RouterRoutes, Route, Navigate } from "react-ro
 import ScrollToTop from "components/ScrollToTop";
 import ErrorBoundary from "components/ErrorBoundary";
 import Header from "components/ui/Header";
+import RoleBasedRedirect from "components/RoleBasedRedirect";
 import FleetDashboard from "pages/fleet-dashboard";
 import LiveVehicleTracking from "pages/live-vehicle-tracking";
 import DriverBehaviorAnalytics from "pages/driver-behavior-analytics";
@@ -18,6 +19,7 @@ const TelemetryManagement = lazy(() => import('pages/telemetry-management/Teleme
 const AssignmentManagement = lazy(() => import('pages/assignment-management/AssignmentManagement'));
 const ViolationManagement = lazy(() => import('pages/violation-management/ViolationManagement'));
 const UserManagement = lazy(() => import('pages/user-management/UserManagement'));
+const AdminDashboard = lazy(() => import('pages/admin-dashboard'));
 
 function isAuthenticated() {
   return !!localStorage.getItem('authToken');
@@ -40,7 +42,8 @@ const Routes = () => {
               path="/*"
               element={
                 <PrivateRoute>
-                  <RouterRoutes>
+                  <RoleBasedRedirect>
+                    <RouterRoutes>
                     <Route path="/" element={<Navigate to="/fleet-dashboard" replace />} />
                     <Route path="/fleet-dashboard" element={<FleetDashboard />} />
                     <Route path="/live-vehicle-tracking" element={<LiveVehicleTracking />} />
@@ -55,8 +58,9 @@ const Routes = () => {
                     <Route path="/assignment-management" element={<Suspense fallback={<div>Chargement...</div>}><AssignmentManagement /></Suspense>} />
                     <Route path="/violation-management" element={<Suspense fallback={<div>Chargement...</div>}><ViolationManagement /></Suspense>} />
                     <Route path="/user-management" element={<Suspense fallback={<div>Chargement...</div>}><UserManagement /></Suspense>} />
-                    {/* Ajoute ici la route admin-dashboard plus tard */}
-                  </RouterRoutes>
+                    <Route path="/admin-dashboard" element={<Suspense fallback={<div>Chargement...</div>}><AdminDashboard /></Suspense>} />
+                    </RouterRoutes>
+                  </RoleBasedRedirect>
                 </PrivateRoute>
               }
             />

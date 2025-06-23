@@ -32,6 +32,8 @@ const vehicleAssignmentRoutes = require('./routes/vehicleAssignmentRoutes');
 const activityRoutes = require('./routes/activityRoutes');
 const deviceRoutes = require('./routes/deviceRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const dashboardRoutes = require('./routes/dashboardRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 
 // Check for required dependencies at startup
 const requiredDependencies = ['pdfkit', 'csv-writer', 'nodemailer', 'moment'];
@@ -116,7 +118,8 @@ app.use('/api/activities', auth, activityRoutes);
 app.use('/api/telemetry', auth, telemetryRoutes);
 app.use('/api/devices', auth, deviceRoutes);
 app.use('/api/notifications', auth, notificationRoutes);
-app.use('/api/dashboard', auth, require('./routes/dashboardRoutes'));
+app.use('/api/dashboard', auth, dashboardRoutes);
+app.use('/api/admin', adminRoutes);
 
 // 404 handler
 app.use((req, res) => {

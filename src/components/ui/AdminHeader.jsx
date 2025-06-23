@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getUserProfile } from '../../services/api/users';
 import NotificationDropdown from './NotificationDropdown';
 
-const Header = () => {
+const AdminHeader = () => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('connected');
   const [userProfile, setUserProfile] = useState(null);
@@ -15,44 +15,6 @@ const Header = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout, isAuthenticated } = useAuth();
-
-  const navigationTabs = [
-    {
-      id: 'dashboard',
-      labelFr: 'Tableau de Bord',
-      path: '/fleet-dashboard',
-      icon: 'LayoutDashboard',
-      tooltip: 'Vue d\'ensemble de la flotte'
-    },
-    {
-      id: 'tracking',
-      labelFr: 'Suivi en Temps Réel',
-      path: '/live-vehicle-tracking',
-      icon: 'MapPin',
-      tooltip: 'Suivi GPS des véhicules'
-    },
-    {
-      id: 'cameras',
-      labelFr: 'Caméras',
-      path: '/camera-feed-viewer',
-      icon: 'Video',
-      tooltip: 'Gestion des flux caméras'
-    },
-    {
-      id: 'drivers',
-      labelFr: 'Conducteurs',
-      path: '/driver-behavior-analytics',
-      icon: 'UserCheck',
-      tooltip: 'Analyse comportementale des conducteurs'
-    },
-    {
-      id: 'vehicles',
-      labelFr: 'Véhicules',
-      path: '/vehicle-management',
-      icon: 'Truck',
-      tooltip: 'Gestion de la flotte'
-    }
-  ];
 
   // User profile loading effect
   useEffect(() => {
@@ -98,10 +60,6 @@ const Header = () => {
 
     return () => clearInterval(interval);
   }, []);
-
-  const handleTabClick = (path) => {
-    navigate(path);
-  };
   
   const handleLogout = () => {
     logout();
@@ -140,13 +98,6 @@ const Header = () => {
     return `Il y a ${diffInDays} j`;
   };
 
-  const handleKeyDown = (event, path) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      navigate(path);
-    }
-  };
-
   const getStatusColor = (status) => {
     switch (status) {
       case 'connected': return 'text-success';
@@ -171,40 +122,26 @@ const Header = () => {
     <header className="fixed top-0 left-0 right-0 z-1000 bg-surface border-b border-border shadow-elevation-1">
       <div className="px-4 lg:px-6">
         <div className="flex items-center justify-between h-16">
-          {/* Logo Section */}
+          {/* Logo Section - Admin Version */}
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-3">
               <div className="w-8 h-8 bg-primary rounded-base flex items-center justify-center">
-                <Icon name="Truck" size={20} color="white" />
+                <Icon name="Shield" size={20} color="white" />
               </div>
               <div className="hidden sm:block">
                 <h1 className="text-xl font-heading font-semibold text-primary">
-                  Karangue221
+                  Administration
                 </h1>
                 <p className="text-xs text-text-secondary font-caption">
-                  Gestion de Flotte GPS
+                  Karangue221
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Primary Navigation Tabs */}
-          <nav className="hidden lg:flex items-center space-x-1" role="navigation" aria-label="Navigation principale">
-            {navigationTabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => handleTabClick(tab.path)}
-                onKeyDown={(e) => handleKeyDown(e, tab.path)}
-                className={`nav-tab ${location.pathname === tab.path ? 'active' : ''}`}
-                title={tab.tooltip}
-                aria-current={location.pathname === tab.path ? 'page' : undefined}
-              >
-                <div className="flex items-center space-x-2">
-                  <Icon name={tab.icon} size={18} />
-                  <span className="font-medium">{tab.labelFr}</span>
-                </div>
-              </button>
-            ))}
+          {/* Navigation rapide admin */}
+          <nav className="hidden lg:flex items-center space-x-1" role="navigation" aria-label="Navigation administration">
+            
           </nav>
 
           {/* Right Section - Status, Notifications, User */}
@@ -217,8 +154,8 @@ const Header = () => {
                 className={`${getStatusColor(connectionStatus)} transition-colors duration-150`}
               />
               <span className="text-sm font-medium text-text-secondary">
-                {connectionStatus === 'connected' ? 'Connecté' : 
-                 connectionStatus === 'connecting' ? 'Connexion...' : 'Déconnecté'}
+                {connectionStatus === 'connected' ? 'Système Connecté' : 
+                 connectionStatus === 'connecting' ? 'Vérification...' : 'Système Déconnecté'}
               </span>
               <div className="w-2 h-2 rounded-full bg-success animate-pulse-slow"></div>
             </div>
@@ -231,26 +168,26 @@ const Header = () => {
               <button
                 onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
                 className="flex items-center space-x-3 p-2 text-text-secondary hover:text-text-primary transition-colors duration-150 rounded-base hover:bg-surface-secondary"
-                aria-label="Menu utilisateur"
+                aria-label="Menu utilisateur administrateur"
                 aria-expanded={isUserMenuOpen}
               >
                 <div className="relative w-8 h-8 bg-primary-200 rounded-full flex items-center justify-center overflow-hidden">
                   {user?.avatarUrl ? (
                     <img 
                       src={user.avatarUrl} 
-                      alt={user?.firstName || 'Avatar utilisateur'} 
+                      alt={user?.firstName || 'Avatar administrateur'} 
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <Icon name="User" size={16} className="text-primary" />
+                    <Icon name="UserCheck" size={16} className="text-primary" />
                   )}
-                  <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-success rounded-full border-2 border-surface"></span>
+                  <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-warning rounded-full border-2 border-surface"></span>
                 </div>
                 <div className="hidden md:block text-left">
                   <p className="text-sm font-medium text-text-primary">
-                    {isProfileLoading ? 'Chargement...' : user?.firstName ? `${user.firstName} ${user.lastName || ''}` : 'Utilisateur'}
+                    {isProfileLoading ? 'Chargement...' : user?.firstName ? `${user.firstName} ${user.lastName || ''}` : 'Administrateur'}
                   </p>
-                  <p className="text-xs text-text-secondary">{user?.role || 'Rôle non défini'}</p>
+                  <p className="text-xs text-warning font-medium">Administrateur</p>
                 </div>
                 <Icon name="ChevronDown" size={16} className={`transition-transform duration-150 ${isUserMenuOpen ? 'rotate-180' : ''}`} />
               </button>
@@ -263,18 +200,18 @@ const Header = () => {
                         {user?.avatarUrl ? (
                           <img 
                             src={user.avatarUrl} 
-                            alt={user?.firstName || 'Avatar utilisateur'} 
+                            alt={user?.firstName || 'Avatar administrateur'} 
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <Icon name="User" size={24} className="text-primary" />
+                          <Icon name="UserCheck" size={24} className="text-primary" />
                         )}
                       </div>
                       <div>
                         <p className="font-medium text-text-primary">
-                          {isProfileLoading ? 'Chargement...' : user?.firstName ? `${user.firstName} ${user.lastName || ''}` : 'Utilisateur'}
+                          {isProfileLoading ? 'Chargement...' : user?.firstName ? `${user.firstName} ${user.lastName || ''}` : 'Administrateur'}
                         </p>
-                        <p className="text-sm text-text-secondary">{user?.role || 'Rôle non défini'}</p>
+                        <p className="text-sm text-warning font-medium">Administrateur Système</p>
                         <p className="text-xs text-text-tertiary mt-1">{user?.email || ''}</p>
                       </div>
                     </div>
@@ -288,9 +225,9 @@ const Header = () => {
                           </div>
                           <div>
                             <p className="text-text-tertiary">Statut</p>
-                            <p className="text-success font-medium flex items-center">
-                              <span className="inline-block w-2 h-2 rounded-full bg-success mr-1.5"></span>
-                              En ligne
+                            <p className="text-warning font-medium flex items-center">
+                              <span className="inline-block w-2 h-2 rounded-full bg-warning mr-1.5"></span>
+                              Administrateur
                             </p>
                           </div>
                         </div>
@@ -311,24 +248,34 @@ const Header = () => {
                       className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-surface-secondary transition-colors duration-150 flex items-center space-x-2"
                     >
                       <Icon name="Settings" size={16} />
-                      <span>Paramètres</span>
+                      <span>Paramètres Admin</span>
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setIsUserMenuOpen(false);
+                        navigate('/admin-audit-logs');
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-surface-secondary transition-colors duration-150 flex items-center space-x-2"
+                    >
+                      <Icon name="FileSearch" size={16} />
+                      <span>Logs d'Audit</span>
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setIsUserMenuOpen(false);
+                        navigate('/admin-backup');
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-surface-secondary transition-colors duration-150 flex items-center space-x-2"
+                    >
+                      <Icon name="Download" size={16} />
+                      <span>Sauvegardes</span>
                     </button>
                     <button 
                       onClick={handleHelpClick}
                       className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-surface-secondary transition-colors duration-150 flex items-center space-x-2"
                     >
                       <Icon name="HelpCircle" size={16} />
-                      <span>Aide & Support</span>
-                    </button>
-                    <button 
-                      onClick={() => {
-                        setIsUserMenuOpen(false);
-                        navigate('/notification-management');
-                      }}
-                      className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-surface-secondary transition-colors duration-150 flex items-center space-x-2"
-                    >
-                      <Icon name="Bell" size={16} />
-                      <span>Préférences de notification</span>
+                      <span>Documentation Admin</span>
                     </button>
                   </div>
                   
@@ -351,4 +298,4 @@ const Header = () => {
   );
 };
 
-export default Header;
+export default AdminHeader;

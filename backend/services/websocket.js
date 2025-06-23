@@ -8,6 +8,7 @@
 const WebSocket = require('ws');
 const jwt = require('jsonwebtoken');
 const url = require('url');
+const Notification = require('../models/notificationModel');
 
 // Configuration
 const JWT_SECRET = process.env.JWT_SECRET || 'votre_clé_secrète_temporaire';
@@ -200,55 +201,70 @@ class WebSocketService {
   }
 
   /**
-   * Handle incoming messages
+   * Handle incoming WebSocket messages
    * @param {WebSocket} ws - WebSocket client
-   * @param {Buffer|string} message - Message data
+   * @param {string|Buffer} message - Raw message data
    */
   handleMessage(ws, message) {
     try {
-      const data = JSON.parse(message.toString());
+      const data = JSON.parse(message);
       const client = this.clients.get(ws);
       
-      // Update client activity timestamp
-      if (client) {
-        client.lastActivity = Date.now();
+      if (!client) {
+        console.error('Message from unknown client');
+        return;
       }
       
-      console.log(`📩 Message from ${client?.id || 'unknown'}: ${data.action || 'unknown action'}`);
+      console.log(`📨 Message from ${client.id}:`, data.type || data.action);
+      
+      // Update last activity
+      client.lastActivity = Date.now();
       
       // Handle different message types
-      switch (data.action) {
+      switch (data.type || data.action) {
+        case 'ping':
+          this.sendToClient(ws, { type: 'pong', timestamp: Date.now() });
+          break;
+          
+        case 'subscribe':
+        case 'subscribe_notifications':
+          // Client wants to receive notifications
+          this.handleSubscription(ws, data.channels || ['notifications']);
+          break;
+          
+        case 'mark_notification_read':
+          // Client wants to mark a notification as read
+          this.handleMarkNotificationRead(ws, data.payload);
+          break;
+          
         case 'get_initial_data':
           this.sendInitialData(ws);
           break;
           
-        case 'ping':
-          ws.send(JSON.stringify({ 
-            type: 'pong', 
-            timestamp: new Date().toISOString(),
-            serverId: 'karangue-ws-server'
-          }));
+        case 'request_vehicle_status':
+          this.sendVehicleStatus(ws, data.vehicleId);
           break;
           
-        case 'subscribe':
-          this.handleSubscription(ws, data.channels || []);
+        case 'request_system_status':
+          this.sendSystemStatus(ws);
           break;
           
         default:
-          console.log('Unknown message action:', data.action);
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: `Unknown action: ${data.action}`,
-            originalAction: data.action
-          }));
+          console.log(`Unknown message type: ${data.type || data.action}`);
+          this.sendToClient(ws, { 
+            type: 'error', 
+            message: 'Unknown message type',
+            originalType: data.type || data.action
+          });
       }
+      
     } catch (error) {
-      console.error('Error processing message:', error.message);
-      ws.send(JSON.stringify({ 
+      console.error('Error handling WebSocket message:', error);
+      this.sendToClient(ws, { 
         type: 'error', 
-        message: 'Failed to process message',
-        error: IS_DEV_MODE ? error.message : 'Internal error'
-      }));
+        message: 'Invalid message format',
+        error: error.message
+      });
     }
   }
 
@@ -467,6 +483,154 @@ class WebSocketService {
     });
     
     console.log(`📢 Broadcast sent to ${sentCount} clients${channels.length > 0 ? ` in channels: ${channels.join(', ')}` : ''}`);
+  }
+
+  async handleMarkNotificationRead(ws, payload) {
+    try {
+      const { notificationId } = payload;
+      const clientInfo = this.clients.get(ws);
+
+      if (!clientInfo) return;
+
+      // Mark notification as read in database
+      await Notification.markAsRead(notificationId);
+
+      // Confirm to client
+      this.sendToClient(ws, {
+        type: 'notification_updated',
+        payload: { id: notificationId, status: 'read' }
+      });
+
+      // Broadcast to other clients of the same user
+      this.broadcastToUser(clientInfo.userId, {
+        type: 'notification_updated',
+        payload: { id: notificationId, status: 'read' }
+      }, ws);
+
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
+  }
+
+  // Send message to specific client
+  sendToClient(ws, message) {
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify(message));
+      } catch (error) {
+        console.error('Error sending message to client:', error);
+      }
+    }
+  }
+
+  // Broadcast message to all clients of a specific user
+  broadcastToUser(userId, message, excludeWs = null) {
+    this.clients.forEach((clientInfo, ws) => {
+      if (clientInfo.userId === userId && ws !== excludeWs) {
+        this.sendToClient(ws, message);
+      }
+    });
+  }
+
+  // Broadcast message to all connected clients
+  broadcastToAll(message) {
+    this.clients.forEach((clientInfo, ws) => {
+      this.sendToClient(ws, message);
+    });
+  }
+
+  // Send notification to specific user
+  async sendNotificationToUser(userId, notification) {
+    // Save notification to database
+    const savedNotification = await Notification.create({
+      user_id: userId,
+      type: notification.type,
+      message: notification.message,
+      status: 'unread',
+      timestamp: new Date(),
+      vehicle_id: notification.vehicle_id || null
+    });
+
+    // Broadcast to user's connected clients
+    this.broadcastToUser(userId, {
+      type: 'notification',
+      payload: savedNotification
+    });
+
+    return savedNotification;
+  }
+
+  // Send notification to all users
+  async sendNotificationToAll(notification) {
+    // Get all users (you might want to implement this based on your user model)
+    // For now, we'll broadcast to all connected clients
+    const savedNotification = await Notification.create({
+      user_id: null, // null means system notification for all users
+      type: notification.type,
+      message: notification.message,
+      status: 'unread',
+      timestamp: new Date(),
+      vehicle_id: notification.vehicle_id || null
+    });
+
+    this.broadcastToAll({
+      type: 'notification',
+      payload: savedNotification
+    });
+
+    return savedNotification;
+  }
+
+  // Send system status update
+  sendSystemStatus(status) {
+    this.broadcastToAll({
+      type: 'system_status',
+      payload: { ...status, timestamp: new Date() }
+    });
+  }
+
+  // Send vehicle update
+  sendVehicleUpdate(vehicleId, update) {
+    this.broadcastToAll({
+      type: 'vehicle_update',
+      payload: { vehicleId, ...update, timestamp: new Date() }
+    });
+  }
+
+  // Send telemetry data
+  sendTelemetry(vehicleId, telemetry) {
+    this.broadcastToAll({
+      type: 'telemetry',
+      payload: { vehicleId, ...telemetry, timestamp: new Date() }
+    });
+  }
+
+  // Send incident alert
+  sendIncidentAlert(incident) {
+    this.broadcastToAll({
+      type: 'incident',
+      payload: { ...incident, timestamp: new Date() }
+    });
+  }
+
+  // Get connection statistics
+  getStats() {
+    const stats = {
+      totalConnections: this.clients.size,
+      users: new Set(),
+      connectionsByUser: {}
+    };
+
+    this.clients.forEach((clientInfo, ws) => {
+      stats.users.add(clientInfo.userId);
+      if (!stats.connectionsByUser[clientInfo.userId]) {
+        stats.connectionsByUser[clientInfo.userId] = 0;
+      }
+      stats.connectionsByUser[clientInfo.userId]++;
+    });
+
+    stats.uniqueUsers = stats.users.size;
+    return stats;
   }
 }
 

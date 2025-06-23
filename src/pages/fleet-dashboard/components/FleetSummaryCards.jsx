@@ -47,6 +47,7 @@ const FleetSummaryCards = ({
       console.warn('⚠️ Will calculate from: ', vehicles.length, 'vehicles,', drivers.length, 'drivers');
       console.log('💡 Check if the API request succeeded but returned no data, or if there was an authentication error');
     }
+    
     // Calculs des statistiques - utiliser les données du dashboard si disponibles
     const totalVehicles = dashboardSummary ? dashboardSummary.total_vehicles : vehicles.length;
     const onlineVehicles = dashboardSummary ? dashboardSummary.active_vehicles : vehicles.filter(v => v.status === 'active').length;
@@ -78,7 +79,8 @@ const FleetSummaryCards = ({
       todayFuel,
       totalDistance,
       averageSpeed,
-      maintenanceDue
+      maintenanceDue,
+      hasDashboardData: !!dashboardSummary
     };
   }, [vehicles, drivers, incidents, violations, telemetry, dashboardData]);
 
@@ -92,8 +94,13 @@ const FleetSummaryCards = ({
       color: 'primary',
       bgColor: 'bg-primary-50',
       iconColor: 'text-primary',
-      subtitle: `${calculatedStats.onlineVehicles} en ligne`,
-      trend: null
+      subtitle: calculatedStats.hasDashboardData 
+        ? `${calculatedStats.onlineVehicles} en ligne`
+        : vehicles.length > 0 
+          ? `${calculatedStats.onlineVehicles} en ligne`
+          : 'Aucun véhicule disponible',
+      trend: null,
+      showWarning: !calculatedStats.hasDashboardData && vehicles.length === 0
     },
     {
       id: 'active-drivers',
@@ -103,8 +110,13 @@ const FleetSummaryCards = ({
       color: 'success',
       bgColor: 'bg-success-50',
       iconColor: 'text-success',
-      subtitle: 'Actuellement en service',
-      trend: null
+      subtitle: calculatedStats.hasDashboardData 
+        ? 'Actuellement en service'
+        : drivers.length > 0 
+          ? 'Actuellement en service'
+          : 'Aucun conducteur disponible',
+      trend: null,
+      showWarning: !calculatedStats.hasDashboardData && drivers.length === 0
     },
     {
       id: 'alerts',
@@ -115,7 +127,8 @@ const FleetSummaryCards = ({
       bgColor: 'bg-warning-50',
       iconColor: 'text-warning',
       subtitle: 'Nécessitent attention',
-      trend: null
+      trend: null,
+      showWarning: false
     },
     {
       id: 'fuel-consumption',
@@ -126,7 +139,8 @@ const FleetSummaryCards = ({
       bgColor: 'bg-secondary-50',
       iconColor: 'text-secondary',
       subtitle: 'Aujourd\'hui',
-      trend: null
+      trend: null,
+      showWarning: false
     },
     {
       id: 'total-distance',
@@ -137,7 +151,8 @@ const FleetSummaryCards = ({
       bgColor: 'bg-accent-50',
       iconColor: 'text-accent',
       subtitle: 'Aujourd\'hui',
-      trend: null
+      trend: null,
+      showWarning: false
     },
     {
       id: 'average-speed',
@@ -148,7 +163,8 @@ const FleetSummaryCards = ({
       bgColor: 'bg-primary-50',
       iconColor: 'text-primary',
       subtitle: 'Flotte globale',
-      trend: null
+      trend: null,
+      showWarning: false
     },
     {
       id: 'maintenance-due',
@@ -159,9 +175,10 @@ const FleetSummaryCards = ({
       bgColor: 'bg-error-50',
       iconColor: 'text-error',
       subtitle: 'Véhicules concernés',
-      trend: null
+      trend: null,
+      showWarning: false
     }
-  ], [calculatedStats]);
+  ], [calculatedStats, vehicles.length, drivers.length]);
 
   return (
     <div className="space-y-4">
@@ -174,10 +191,22 @@ const FleetSummaryCards = ({
             <div className="w-4 h-4 border-2 border-secondary border-t-transparent rounded-full animate-spin"></div>
           )}
           <div className="text-xs text-text-secondary px-2 py-1 rounded-full bg-surface-secondary">
-            Mise à jour en temps réel
+            {calculatedStats.hasDashboardData ? 'Mise à jour en temps réel' : 'Données de secours'}
           </div>
         </div>
       </div>
+
+      {/* Warning message when using fallback data */}
+      {!calculatedStats.hasDashboardData && (
+        <div className="mb-4 p-3 bg-warning/10 border border-warning/20 rounded-lg">
+          <div className="flex items-center space-x-2">
+            <Icon name="AlertTriangle" size={16} className="text-warning" />
+            <span className="text-sm text-warning">
+              Données du tableau de bord non disponibles. Affichage des données de secours.
+            </span>
+          </div>
+        </div>
+      )}
 
       {summaryCards.map((card) => (
         <div key={card.id} className="card p-4 hover:shadow-elevation-2 transition-all duration-150">
@@ -192,6 +221,11 @@ const FleetSummaryCards = ({
                     {card.title}
                   </h3>
                 </div>
+                {card.showWarning && (
+                  <div className="ml-auto">
+                    <Icon name="AlertCircle" size={16} className="text-warning" />
+                  </div>
+                )}
               </div>
               <div className="space-y-1">
                 <p className="text-2xl font-bold text-text-primary font-data">

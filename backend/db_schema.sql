@@ -135,9 +135,10 @@ CREATE TABLE notifications (
   message TEXT,
   status ENUM('unread', 'read') DEFAULT 'unread',
   timestamp DATETIME,
-  FOREIGN KEY (user_id) REFERENCES users(id)
-); 
-
+  vehicle_id INT,
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+);
 
 -- DRIVERS
 ALTER TABLE drivers
@@ -146,8 +147,7 @@ ALTER TABLE drivers
   ADD COLUMN trend ENUM('up', 'down', 'stable') DEFAULT 'stable',
   ADD COLUMN experience VARCHAR(50) DEFAULT NULL;
 
-
-  -- VIOLATIONS
+-- VIOLATIONS
 ALTER TABLE violations
   ADD COLUMN driver_id INT,
   ADD COLUMN type VARCHAR(100),

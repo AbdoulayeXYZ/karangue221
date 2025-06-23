@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <!-- Content Security Policy pour réduire les interférences d'extensions -->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        script-src 'self' 'unsafe-inline' 'unsafe-eval' localhost:* 127.0.0.1:*;
+        style-src 'self' 'unsafe-inline';
+        img-src 'self' data: blob:;
+        font-src 'self' data:;
+        connect-src 'self' ws: wss: localhost:* 127.0.0.1:*;
+        frame-src 'none';
+        object-src 'none';
+        base-uri 'self';
+        form-action 'self';
+    ">
+    
+    <title>Karangue221 - Configuration CSP</title>
+</head>
+<body>
+    <p>Cette page contient les configurations CSP pour réduire les interférences d'extensions.</p>
+</body>
+</html>

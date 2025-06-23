@@ -20,9 +20,13 @@ export const AuthProvider = ({ children }) => {
     const storedToken = getAuthToken();
     const storedUser = getUserData();
     
+    console.log('🔄 AuthContext - Token stocké:', !!storedToken);
+    console.log('🔄 AuthContext - Utilisateur stocké:', storedUser);
+    
     if (storedToken && storedUser) {
       setToken(storedToken);
       setUser(storedUser);
+      console.log('✅ AuthContext - Utilisateur restauré:', storedUser.name, 'Rôle:', storedUser.role);
     }
     setLoading(false);
   }, []);

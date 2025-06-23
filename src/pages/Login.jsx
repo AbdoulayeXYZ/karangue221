@@ -29,11 +29,18 @@ const Login = () => {
       localStorage.setItem('userData', JSON.stringify(data.user));
       
       // Redirection basée sur le rôle
-      if (data.user.role === 'admin' || data.user.role === 'owner') {
-        // Pour admin et owner, rediriger vers le dashboard principal
+      console.log('Utilisateur connecté:', data.user);
+      console.log('Rôle utilisateur:', data.user.role);
+      
+      if (data.user.role === 'admin') {
+        console.log('Redirection admin vers admin-dashboard');
+        navigate('/admin-dashboard');
+      } else if (data.user.role === 'owner') {
+        console.log('Redirection owner vers fleet-dashboard');
         navigate('/fleet-dashboard');
       } else {
         // Pour les autres rôles, rediriger vers le dashboard par défaut
+        console.log('Redirection par défaut vers fleet-dashboard');
         navigate('/fleet-dashboard');
       }
     } catch (err) {
