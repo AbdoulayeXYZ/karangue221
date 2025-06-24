@@ -22,7 +22,7 @@ exports.login = async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: '12h' }
     );
-    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, tenant_id: user.tenant_id } });
   } catch (err) {
     res.status(500).json({ error: 'Erreur serveur.' });
   }

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Icon from 'components/AppIcon';
+import { useAuth } from '../contexts/AuthContext';
 
 const API_URL = 'http://localhost:5001/api';
 
@@ -10,6 +11,7 @@ const Login = () => {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { updateUser } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -27,19 +29,19 @@ const Login = () => {
       // Stocker les données d'authentification
       localStorage.setItem('authToken', data.token);
       localStorage.setItem('userData', JSON.stringify(data.user));
+      updateUser(data.user);
       
       // Redirection basée sur le rôle
       console.log('Utilisateur connecté:', data.user);
       console.log('Rôle utilisateur:', data.user.role);
-      
+      console.log('Tenant ID:', data.user.tenant_id);
+
       if (data.user.role === 'admin') {
+        // Tous les administrateurs vont vers admin-dashboard
         console.log('Redirection admin vers admin-dashboard');
         navigate('/admin-dashboard');
-      } else if (data.user.role === 'owner') {
-        console.log('Redirection owner vers fleet-dashboard');
-        navigate('/fleet-dashboard');
       } else {
-        // Pour les autres rôles, rediriger vers le dashboard par défaut
+        // Pour les autres rôles (owner, etc.), rediriger vers le dashboard par défaut
         console.log('Redirection par défaut vers fleet-dashboard');
         navigate('/fleet-dashboard');
       }

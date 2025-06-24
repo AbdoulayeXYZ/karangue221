@@ -41,7 +41,7 @@ const AdminStatsCards = ({ stats, loading, error }) => {
       subtitle: `${stats.users?.active_users || 0} actifs`,
       icon: 'Users',
       color: 'primary',
-      trend: '+2.3%'
+      trend: stats.users?.trends?.total_users || '0%'
     },
     {
       title: 'Propriétaires',
@@ -49,7 +49,7 @@ const AdminStatsCards = ({ stats, loading, error }) => {
       subtitle: `${stats.fleets?.total_fleets || 0} flottes`,
       icon: 'Crown',
       color: 'secondary',
-      trend: '+1.2%'
+      trend: stats.users?.trends?.owners || '0%'
     },
     {
       title: 'Véhicules',
@@ -57,7 +57,7 @@ const AdminStatsCards = ({ stats, loading, error }) => {
       subtitle: `${stats.vehicles?.active_vehicles || 0} actifs`,
       icon: 'Car',
       color: 'success',
-      trend: '+5.4%'
+      trend: stats.vehicles?.trends?.total_vehicles || '0%'
     },
     {
       title: 'Conducteurs',
@@ -65,7 +65,7 @@ const AdminStatsCards = ({ stats, loading, error }) => {
       subtitle: `${Math.round(stats.drivers?.average_score || 0)}/100 score moy.`,
       icon: 'UserCheck',
       color: 'info',
-      trend: '+0.8%'
+      trend: stats.drivers?.trends?.total_drivers || '0%'
     },
     {
       title: 'Violations (30j)',
@@ -73,7 +73,7 @@ const AdminStatsCards = ({ stats, loading, error }) => {
       subtitle: `${stats.violations?.pending_violations || 0} en attente`,
       icon: 'AlertTriangle',
       color: 'warning',
-      trend: '-3.1%'
+      trend: stats.violations?.trends?.total_violations || '0%'
     },
     {
       title: 'Incidents (30j)',
@@ -81,7 +81,7 @@ const AdminStatsCards = ({ stats, loading, error }) => {
       subtitle: `${stats.incidents?.open_incidents || 0} ouverts`,
       icon: 'Shield',
       color: 'error',
-      trend: '-1.5%'
+      trend: stats.incidents?.trends?.total_incidents || '0%'
     },
     {
       title: 'Flottes Actives',
@@ -89,7 +89,7 @@ const AdminStatsCards = ({ stats, loading, error }) => {
       subtitle: `${stats.fleets?.unique_owners || 0} propriétaires`,
       icon: 'Building2',
       color: 'primary',
-      trend: '+0.3%'
+      trend: stats.fleets?.trends?.total_fleets || '0%'
     },
     {
       title: 'Maintenance',
@@ -97,7 +97,7 @@ const AdminStatsCards = ({ stats, loading, error }) => {
       subtitle: 'véhicules',
       icon: 'Wrench',
       color: 'secondary',
-      trend: '+2.1%'
+      trend: stats.vehicles?.trends?.maintenance_vehicles || '0%'
     }
   ];
 

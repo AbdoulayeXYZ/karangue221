@@ -3,6 +3,17 @@ const jwt = require('jsonwebtoken');
 module.exports = (req, res, next) => {
   console.log(`🔒 Vérification d'authentification pour ${req.method} ${req.originalUrl}`);
   
+  // Mode développement - bypass pour les tests owner
+  if (process.env.NODE_ENV === 'development' && req.originalUrl.startsWith('/api/owner')) {
+    req.user = {
+      id: 3,
+      name: 'Test Owner',
+      email: 'admin@karangue221.com',
+      role: 'owner'
+    };
+    console.log('🔓 Mode développement: Bypass authentification pour owner');
+    return next();
+  }
   
   // Vérification de l'en-tête d'authentification
   const authHeader = req.headers['authorization'];

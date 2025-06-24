@@ -4,6 +4,9 @@
  */
 const db = require('../config/db');
 
+// Mutex to prevent concurrent dashboard refreshes
+let refreshMutex = false;
+
 /**
  * Get all dashboard summary data
  * @returns {Promise<Array>} Dashboard summary records
@@ -14,9 +17,11 @@ exports.getSummary = async () => {
     const [rows] = await db.query('SELECT * FROM dashboard_summary ORDER BY fleet_name');
     
     // If no data exists, refresh it first
-    if (rows.length === 0) {
+    if (rows.length === 0 && !refreshMutex) {
+      refreshMutex = true;
       console.log('No dashboard data found, refreshing...');
       await this.refreshDashboard();
+      refreshMutex = false;
       const [refreshedRows] = await db.query('SELECT * FROM dashboard_summary ORDER BY fleet_name');
       return refreshedRows;
     }
@@ -47,12 +52,12 @@ exports.getFleetSummary = async (fleetId) => {
 
 /**
  * Force refresh of dashboard data
- * This recalculates all fleet metrics
+ * This recalculates all fleet metrics using UPSERT to avoid conflicts with triggers
  * @returns {Promise<boolean>} Success indicator
  */
 exports.refreshDashboard = async () => {
   try {
-    console.log('Refreshing dashboard summary data');
+    console.log('Refreshing dashboard summary data using UPSERT strategy');
     
     // First, let's check what fleets exist
     const [fleets] = await db.query('SELECT id, name FROM fleets');
@@ -63,16 +68,13 @@ exports.refreshDashboard = async () => {
       return false;
     }
     
-    // Clear existing dashboard data
-    await db.query('DELETE FROM dashboard_summary');
-    console.log('Cleared existing dashboard data');
-    
-    // Execute the update query for each fleet
+    // Use REPLACE INTO to avoid conflicts with existing data and triggers
+    // REPLACE INTO will delete existing row and insert new one atomically
     for (const fleet of fleets) {
       console.log(`Processing fleet: ${fleet.name} (ID: ${fleet.id})`);
       
       const [result] = await db.query(`
-        INSERT INTO dashboard_summary (
+        REPLACE INTO dashboard_summary (
           fleet_id, 
           fleet_name, 
           total_vehicles, 
@@ -111,16 +113,28 @@ exports.refreshDashboard = async () => {
         GROUP BY f.id, f.name
       `, [fleet.id, fleet.name, fleet.id]);
       
-      console.log(`Inserted dashboard data for fleet ${fleet.name}:`, result);
+      console.log(`Updated dashboard data for fleet ${fleet.name} (affected rows: ${result.affectedRows})`);
     }
     
-    // Verify the data was inserted
+    // Verify the data was updated
     const [verification] = await db.query('SELECT COUNT(*) as count FROM dashboard_summary');
     console.log(`Dashboard refresh complete. Total records: ${verification[0].count}`);
     
     return true;
   } catch (error) {
     console.error('Error in dashboardModel.refreshDashboard:', error);
+    
+    // Check if it's a duplicate entry error
+    if (error.code === 'ER_DUP_ENTRY') {
+      console.error('Duplicate entry error detected. This suggests a race condition with database triggers.');
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        errno: error.errno,
+        sqlState: error.sqlState
+      });
+    }
+    
     return false;
   }
 };

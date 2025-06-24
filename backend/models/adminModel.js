@@ -2,13 +2,13 @@ const db = require('../config/db');
 
 class AdminModel {
   /**
-   * Obtenir les statistiques système générales
+   * Obtenir les statistiques système générales avec tendances
    */
   static async getSystemStats() {
     try {
       const connection = await db.getConnection();
       
-      // Statistiques des utilisateurs
+      // Statistiques actuelles des utilisateurs
       const [userStats] = await connection.execute(`
         SELECT 
           COUNT(*) as total_users,
@@ -19,12 +19,31 @@ class AdminModel {
         FROM users
       `);
       
+      // Statistiques des utilisateurs il y a 7 jours pour calculer la tendance
+      const [userStatsWeekAgo] = await connection.execute(`
+        SELECT 
+          COUNT(*) as total_users,
+          SUM(CASE WHEN role = 'owner' THEN 1 ELSE 0 END) as owners,
+          SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_users
+        FROM users
+        WHERE created_at <= DATE_SUB(NOW(), INTERVAL 7 DAY)
+      `);
+      
       // Statistiques des flottes
       const [fleetStats] = await connection.execute(`
         SELECT 
           COUNT(*) as total_fleets,
           COUNT(DISTINCT owner_id) as unique_owners
         FROM fleets
+      `);
+      
+      // Statistiques des flottes il y a 7 jours
+      const [fleetStatsWeekAgo] = await connection.execute(`
+        SELECT 
+          COUNT(*) as total_fleets,
+          COUNT(DISTINCT owner_id) as unique_owners
+        FROM fleets
+        WHERE created_at <= DATE_SUB(NOW(), INTERVAL 7 DAY)
       `);
       
       // Statistiques des véhicules
@@ -37,6 +56,15 @@ class AdminModel {
         FROM vehicles
       `);
       
+      // Statistiques des véhicules il y a 7 jours
+      const [vehicleStatsWeekAgo] = await connection.execute(`
+        SELECT 
+          COUNT(*) as total_vehicles,
+          SUM(CASE WHEN status = 'maintenance' THEN 1 ELSE 0 END) as maintenance_vehicles
+        FROM vehicles
+        WHERE created_at <= DATE_SUB(NOW(), INTERVAL 7 DAY)
+      `);
+      
       // Statistiques des conducteurs
       const [driverStats] = await connection.execute(`
         SELECT 
@@ -45,6 +73,14 @@ class AdminModel {
           SUM(CASE WHEN status = 'inactive' THEN 1 ELSE 0 END) as inactive_drivers,
           ROUND(AVG(overallScore), 2) as average_score
         FROM drivers
+      `);
+      
+      // Statistiques des conducteurs il y a 7 jours
+      const [driverStatsWeekAgo] = await connection.execute(`
+        SELECT 
+          COUNT(*) as total_drivers
+        FROM drivers
+        WHERE created_at <= DATE_SUB(NOW(), INTERVAL 7 DAY)
       `);
       
       // Statistiques des violations (30 derniers jours)
@@ -59,6 +95,15 @@ class AdminModel {
         WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
       `);
       
+      // Statistiques des violations (30 jours précédents pour tendance)
+      const [violationStatsComparison] = await connection.execute(`
+        SELECT 
+          COUNT(*) as total_violations
+        FROM violations 
+        WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 60 DAY)
+        AND timestamp < DATE_SUB(NOW(), INTERVAL 30 DAY)
+      `);
+      
       // Statistiques des incidents (30 derniers jours)
       const [incidentStats] = await connection.execute(`
         SELECT 
@@ -70,15 +115,68 @@ class AdminModel {
         WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
       `);
       
+      // Statistiques des incidents (30 jours précédents pour tendance)
+      const [incidentStatsComparison] = await connection.execute(`
+        SELECT 
+          COUNT(*) as total_incidents
+        FROM incidents 
+        WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 60 DAY)
+        AND timestamp < DATE_SUB(NOW(), INTERVAL 30 DAY)
+      `);
+      
       connection.release();
       
+      // Calculer les tendances
+      const calculateTrend = (current, previous) => {
+        if (!previous || previous === 0) {
+          return current > 0 ? '+100%' : '0%';
+        }
+        const change = ((current - previous) / previous) * 100;
+        const sign = change >= 0 ? '+' : '';
+        return `${sign}${change.toFixed(1)}%`;
+      };
+      
       return {
-        users: userStats[0],
-        fleets: fleetStats[0],
-        vehicles: vehicleStats[0],
-        drivers: driverStats[0],
-        violations: violationStats[0],
-        incidents: incidentStats[0],
+        users: {
+          ...userStats[0],
+          trends: {
+            total_users: calculateTrend(userStats[0].total_users, userStatsWeekAgo[0].total_users),
+            owners: calculateTrend(userStats[0].owners, userStatsWeekAgo[0].owners),
+            active_users: calculateTrend(userStats[0].active_users, userStatsWeekAgo[0].active_users)
+          }
+        },
+        fleets: {
+          ...fleetStats[0],
+          trends: {
+            total_fleets: calculateTrend(fleetStats[0].total_fleets, fleetStatsWeekAgo[0].total_fleets),
+            unique_owners: calculateTrend(fleetStats[0].unique_owners, fleetStatsWeekAgo[0].unique_owners)
+          }
+        },
+        vehicles: {
+          ...vehicleStats[0],
+          trends: {
+            total_vehicles: calculateTrend(vehicleStats[0].total_vehicles, vehicleStatsWeekAgo[0].total_vehicles),
+            maintenance_vehicles: calculateTrend(vehicleStats[0].maintenance_vehicles, vehicleStatsWeekAgo[0].maintenance_vehicles)
+          }
+        },
+        drivers: {
+          ...driverStats[0],
+          trends: {
+            total_drivers: calculateTrend(driverStats[0].total_drivers, driverStatsWeekAgo[0].total_drivers)
+          }
+        },
+        violations: {
+          ...violationStats[0],
+          trends: {
+            total_violations: calculateTrend(violationStats[0].total_violations, violationStatsComparison[0].total_violations)
+          }
+        },
+        incidents: {
+          ...incidentStats[0],
+          trends: {
+            total_incidents: calculateTrend(incidentStats[0].total_incidents, incidentStatsComparison[0].total_incidents)
+          }
+        },
         last_updated: new Date()
       };
     } catch (error) {

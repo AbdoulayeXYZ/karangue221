@@ -67,10 +67,11 @@ async function ensureDevicesTableExists() {
 
 // Ensure the devices table exists when this module is loaded
 ensureDevicesTableExists();
-exports.getAll = async () => {
+exports.getAll = async (tenantId = null) => {
   try {
     // Get vehicles with driver and device information through JOINs
-    const [rows] = await db.query(`
+    // Support multi-tenant filtering
+    let baseQuery = `
       SELECT v.*, 
              d.id as driver_id, 
              CONCAT(IFNULL(d.first_name, ''), ' ', IFNULL(d.last_name, '')) as driver_name, 
@@ -102,8 +103,21 @@ exports.getAll = async () => {
            (SELECT firmware_version FROM vehicle_devices WHERE vehicle_id = v.id AND device_type = 'camera') as camera_firmware_version
            
     FROM vehicles v
-      LEFT JOIN drivers d ON v.driver_id = d.id
-    `);
+      LEFT JOIN drivers d ON v.driver_id = d.id`;
+    
+    let params = [];
+    
+    // Add tenant filtering if tenantId is provided
+    if (tenantId) {
+      baseQuery += ` WHERE v.tenant_id = ?`;
+      params.push(tenantId);
+    }
+    
+    // Add ORDER BY clause
+    baseQuery += ` ORDER BY v.created_at DESC`;
+    
+    // Execute the query
+    const [rows] = await db.query(baseQuery, params);
     
     console.log(`Successfully fetched ${rows.length} vehicles with device information`);
     return rows;
@@ -222,4 +236,95 @@ exports.remove = async (id) => {
     }
     throw error;
   }
+};
+
+// Import tenant helper functions
+const { executeSelectWithTenant, executeInsertWithTenant, executeUpdateWithTenant, executeDeleteWithTenant } = require('./helpers/tenantModelHelper');
+
+// Multi-tenant functions
+exports.getAllByTenant = async (tenantId) => {
+  // Use the existing getAll function with tenantId parameter
+  return exports.getAll(tenantId);
+};
+
+exports.getByIdAndTenant = async (id, tenantId) => {
+  try {
+    const baseQuery = `
+      SELECT v.*, 
+             d.id as driver_id, 
+             CONCAT(IFNULL(d.first_name, ''), ' ', IFNULL(d.last_name, '')) as driver_name, 
+             d.phone as driver_phone, 
+             d.license_number as driver_ibutton,
+             
+             -- GPS device
+             (SELECT status FROM vehicle_devices WHERE vehicle_id = v.id AND device_type = 'gps') as gps_status,
+             (SELECT signal_strength FROM vehicle_devices WHERE vehicle_id = v.id AND device_type = 'gps') as gps_signal_strength,
+             (SELECT last_update FROM vehicle_devices WHERE vehicle_id = v.id AND device_type = 'gps') as gps_last_update,
+             (SELECT firmware_version FROM vehicle_devices WHERE vehicle_id = v.id AND device_type = 'gps') as gps_firmware_version,
+             
+             -- ADAS device
+             (SELECT status FROM vehicle_devices WHERE vehicle_id = v.id AND device_type = 'adas') as adas_status,
+             (SELECT signal_strength FROM vehicle_devices WHERE vehicle_id = v.id AND device_type = 'adas') as adas_signal_strength,
+             (SELECT last_update FROM vehicle_devices WHERE vehicle_id = v.id AND device_type = 'adas') as adas_last_update,
+             (SELECT firmware_version FROM vehicle_devices WHERE vehicle_id = v.id AND device_type = 'adas') as adas_firmware_version,
+             
+             -- DMS device
+             (SELECT status FROM vehicle_devices WHERE vehicle_id = v.id AND device_type = 'dms') as dms_status,
+             (SELECT signal_strength FROM vehicle_devices WHERE vehicle_id = v.id AND device_type = 'dms') as dms_signal_strength,
+             (SELECT last_update FROM vehicle_devices WHERE vehicle_id = v.id AND device_type = 'dms') as dms_last_update,
+             (SELECT firmware_version FROM vehicle_devices WHERE vehicle_id = v.id AND device_type = 'dms') as dms_firmware_version,
+             
+             -- Camera device
+             (SELECT status FROM vehicle_devices WHERE vehicle_id = v.id AND device_type = 'camera') as camera_status,
+             (SELECT signal_strength FROM vehicle_devices WHERE vehicle_id = v.id AND device_type = 'camera') as camera_signal_strength,
+             (SELECT last_update FROM vehicle_devices WHERE vehicle_id = v.id AND device_type = 'camera') as camera_last_update,
+             (SELECT firmware_version FROM vehicle_devices WHERE vehicle_id = v.id AND device_type = 'camera') as camera_firmware_version
+             
+      FROM vehicles v
+        LEFT JOIN drivers d ON v.driver_id = d.id
+        WHERE v.id = ?`;
+    
+    const rows = await executeSelectWithTenant(baseQuery, tenantId, [id]);
+    return rows.length > 0 ? rows[0] : null;
+  } catch (error) {
+    console.error(`Error fetching vehicle ${id} for tenant ${tenantId}:`, error);
+    throw error;
+  }
+};
+
+exports.createWithTenant = async (vehicle, tenantId) => {
+  return executeInsertWithTenant('vehicles', vehicle, tenantId);
+};
+
+exports.updateWithTenant = async (id, vehicle, tenantId) => {
+  return executeUpdateWithTenant('vehicles', vehicle, id, tenantId);
+};
+
+exports.removeWithTenant = async (id, tenantId) => {
+  return executeDeleteWithTenant('vehicles', id, tenantId);
+};
+
+// Additional multi-tenant specific functions
+exports.getVehiclesByFleetAndTenant = async (fleetId, tenantId) => {
+  return executeSelectWithTenant(
+    'SELECT * FROM vehicles WHERE fleet_id = ?', 
+    tenantId, 
+    [fleetId]
+  );
+};
+
+exports.getActiveVehiclesByTenant = async (tenantId) => {
+  return executeSelectWithTenant(
+    "SELECT * FROM vehicles WHERE status = 'active'", 
+    tenantId
+  );
+};
+
+exports.searchVehiclesByTenant = async (searchTerm, tenantId) => {
+  const searchPattern = `%${searchTerm}%`;
+  return executeSelectWithTenant(
+    'SELECT * FROM vehicles WHERE (license_plate LIKE ? OR make LIKE ? OR model LIKE ? OR vin LIKE ?)', 
+    tenantId,
+    [searchPattern, searchPattern, searchPattern, searchPattern]
+  );
 };

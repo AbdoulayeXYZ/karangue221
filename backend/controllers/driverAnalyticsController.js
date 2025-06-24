@@ -632,29 +632,77 @@ exports.emailReport = async (req, res) => {
 exports.getDriverViolations = async (req, res) => {
   try {
     const driverId = req.params.id;
-    const { start_date, end_date } = req.query;
+    let { start_date, end_date } = req.query;
+    
+    console.log(`🔍 Récupération des violations pour conducteur ${driverId}, paramètres:`, { start_date, end_date });
+    
+    // Traitement des dates relatives (30days, 7days, etc.)
+    if (start_date && typeof start_date === 'string') {
+      const now = new Date();
+      
+      if (start_date === '7days') {
+        const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        start_date = sevenDaysAgo.toISOString().split('T')[0];
+      } else if (start_date === '30days') {
+        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        start_date = thirtyDaysAgo.toISOString().split('T')[0];
+      } else if (start_date === '90days') {
+        const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+        start_date = ninetyDaysAgo.toISOString().split('T')[0];
+      } else if (start_date === '1year') {
+        const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+        start_date = oneYearAgo.toISOString().split('T')[0];
+      }
+      
+      // Si aucune end_date n'est spécifiée avec une date relative, utiliser aujourd'hui
+      if (!end_date && ['7days', '30days', '90days', '1year'].includes(req.query.start_date)) {
+        end_date = now.toISOString().split('T')[0];
+      }
+    }
+    
+    console.log(`📅 Dates converties: start_date=${start_date}, end_date=${end_date}`);
     
     // Construire la requête avec filtrage de date optionnel
-    let query = 'SELECT * FROM violations WHERE driver_id = ?';
+    let query = `
+      SELECT 
+        v.*,
+        COALESCE(v.date, v.timestamp) as violation_date
+      FROM violations v 
+      WHERE v.driver_id = ?
+    `;
     const params = [driverId];
     
     if (start_date && end_date) {
-      query += ' AND date BETWEEN ? AND ?';
+      query += ' AND COALESCE(v.date, v.timestamp) BETWEEN ? AND ?';
       params.push(start_date, end_date);
     } else if (start_date) {
-      query += ' AND date >= ?';
+      query += ' AND COALESCE(v.date, v.timestamp) >= ?';
       params.push(start_date);
     } else if (end_date) {
-      query += ' AND date <= ?';
+      query += ' AND COALESCE(v.date, v.timestamp) <= ?';
       params.push(end_date);
     }
     
-    query += ' ORDER BY date DESC';
+    query += ' ORDER BY COALESCE(v.date, v.timestamp) DESC';
+    
+    console.log(`📊 Exécution de la requête:`, query);
+    console.log(`📊 Paramètres:`, params);
     
     const [rows] = await db.query(query, params);
-    res.json(rows);
+    
+    console.log(`✅ ${rows.length} violations récupérées pour le conducteur ${driverId}`);
+    
+    // Formater les violations pour l'affichage
+    const formattedViolations = rows.map(violation => ({
+      ...violation,
+      date: violation.violation_date || violation.date || violation.timestamp,
+      severity: violation.severity || 'medium',
+      cost: violation.cost || 0
+    }));
+    
+    res.json(formattedViolations);
   } catch (error) {
-    console.error('Erreur lors de la récupération des violations du conducteur:', error);
+    console.error('❌ Erreur lors de la récupération des violations du conducteur:', error);
     res.status(500).json({ error: 'Erreur serveur interne' });
   }
 };

@@ -1,0 +1,36 @@
+# Terraform Variables for Karangué221
+# Copiez ce fichier vers terraform.tfvars et ajustez les valeurs
+
+# General Configuration
+project_name = "karangue221"
+environment  = "dev"
+aws_region   = "us-west-2"
+
+# Network Configuration
+vpc_cidr               = "10.0.0.0/16"
+public_subnet_cidrs    = ["10.0.1.0/24", "10.0.2.0/24"]
+private_subnet_cidrs   = ["10.0.10.0/24", "10.0.20.0/24"]
+
+# Database Configuration (Dev Environment)
+db_instance_class       = "db.t3.micro"
+db_allocated_storage    = 20
+db_max_allocated_storage = 100
+db_name                 = "karangue221"
+db_username             = "admin"
+# db_password sera demandé de façon sécurisée
+
+# Cache Configuration (Dev Environment)
+cache_node_type = "cache.t3.micro"
+cache_num_nodes = 1
+
+# ECS Configuration (Dev Environment)
+frontend_cpu          = 256
+frontend_memory       = 512
+backend_cpu           = 512
+backend_memory        = 1024
+frontend_desired_count = 1
+backend_desired_count  = 1
+
+# Domain Configuration (optionnel)
+domain_name     = ""
+certificate_arn = ""

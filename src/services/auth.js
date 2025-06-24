@@ -1,6 +1,8 @@
 /**
- * Authentication service for managing auth tokens
+ * Authentication service for managing auth tokens with multi-tenant support
  */
+
+import tenantService from './tenant.js';
 
 /**
  * Get the current authentication token from localStorage
@@ -87,4 +89,174 @@ export const setUserData = (userData) => {
 export const clearAuth = () => {
   removeAuthToken();
   setUserData(null);
-}; 
+  // Effacer aussi les données tenant
+  tenantService.clearTenant();
+};
+
+/**
+ * Get authentication headers with multi-tenant support
+ * @returns {object} Headers object with authorization and tenant info
+ */
+export const getAuthHeaders = () => {
+  const headers = {
+    'Content-Type': 'application/json'
+  };
+
+  // Ajouter le token d'authentification
+  const token = getAuthToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  // Ajouter les en-têtes tenant
+  const tenantHeaders = tenantService.getTenantHeaders();
+  Object.assign(headers, tenantHeaders);
+
+  return headers;
+};
+
+/**
+ * Make an authenticated API request with tenant support
+ * @param {string} url - The API endpoint
+ * @param {object} options - Fetch options
+ * @returns {Promise} Fetch promise
+ */
+export const apiRequest = async (url, options = {}) => {
+  const config = {
+    ...options,
+    headers: {
+      ...getAuthHeaders(),
+      ...options.headers
+    }
+  };
+
+  try {
+    const response = await fetch(url, config);
+    
+    // Gérer les erreurs d'authentification
+    if (response.status === 401) {
+      console.warn('Token expiré, déconnexion automatique');
+      clearAuth();
+      // Rediriger vers la page de connexion
+      window.location.href = '/login';
+      throw new Error('Session expirée');
+    }
+
+    // Gérer les erreurs de tenant
+    if (response.status === 400 || response.status === 404) {
+      const errorData = await response.json().catch(() => ({}));
+      if (errorData.error && errorData.error.includes('tenant')) {
+        console.error('Erreur tenant:', errorData.message);
+        throw new Error(`Erreur tenant: ${errorData.message}`);
+      }
+    }
+
+    return response;
+  } catch (error) {
+    console.error('Erreur API:', error);
+    throw error;
+  }
+};
+
+/**
+ * Login with tenant support
+ * @param {string} email - User email
+ * @param {string} password - User password
+ * @param {string} tenantId - Optional tenant ID
+ * @returns {Promise} Login result
+ */
+export const login = async (email, password, tenantId = null) => {
+  try {
+    const requestBody = { email, password };
+    
+    // Ajouter le tenant_id si fourni
+    if (tenantId) {
+      requestBody.tenant_id = tenantId;
+    }
+
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...tenantService.getTenantHeaders()
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Erreur de connexion');
+    }
+
+    // Sauvegarder les données d'authentification
+    setAuthToken(data.token);
+    setUserData(data.user);
+
+    // Si des informations tenant sont retournées, les sauvegarder
+    if (data.tenant) {
+      tenantService.setTenant('id', data.tenant.id);
+    }
+
+    console.log('✅ Connexion réussie');
+    return data;
+  } catch (error) {
+    console.error('❌ Erreur de connexion:', error);
+    throw error;
+  }
+};
+
+/**
+ * Logout with tenant cleanup
+ */
+export const logout = async () => {
+  try {
+    // Tenter de notifier le backend de la déconnexion
+    await apiRequest('/api/auth/logout', {
+      method: 'POST'
+    }).catch(() => {
+      // Ignorer les erreurs de déconnexion côté serveur
+      console.warn('Erreur lors de la déconnexion côté serveur (ignorée)');
+    });
+  } finally {
+    // Toujours nettoyer les données locales
+    clearAuth();
+    console.log('✅ Déconnexion réussie');
+  }
+};
+
+/**
+ * Validate current session with tenant
+ * @returns {Promise} Validation result
+ */
+export const validateSession = async () => {
+  try {
+    if (!isAuthenticated()) {
+      throw new Error('Aucun token d\'authentification');
+    }
+
+    const response = await apiRequest('/api/auth/validate');
+    
+    if (!response.ok) {
+      throw new Error('Session invalide');
+    }
+
+    const data = await response.json();
+    
+    // Mettre à jour les données utilisateur si nécessaires
+    if (data.user) {
+      setUserData(data.user);
+    }
+
+    // Valider aussi le tenant
+    if (tenantService.hasTenant()) {
+      await tenantService.validateTenant();
+    }
+
+    return data;
+  } catch (error) {
+    console.error('❌ Erreur de validation de session:', error);
+    clearAuth();
+    throw error;
+  }
+};

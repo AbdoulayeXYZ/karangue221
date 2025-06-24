@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import * as dashboardApi from '../services/api/dashboard';
 
 // Refresh interval in milliseconds (increased from 5 to 15 seconds to reduce load)
@@ -33,6 +33,10 @@ export default function useDashboardData({
   const [lastRefreshAttempt, setLastRefreshAttempt] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   
+  // --- Stable refs for functions ---
+  const fetchDashboardDataRef = useRef();
+  const refreshDashboardRef = useRef();
+
   /**
    * Fetch dashboard summary data
    */
@@ -214,62 +218,38 @@ export default function useDashboardData({
     }
   }, [fetchDashboardData, isRefreshing, lastRefreshAttempt, loading, retryCount]);
   
-  // Initial data load and refresh setup
+  // --- Keep refs up to date ---
+  fetchDashboardDataRef.current = fetchDashboardData;
+  refreshDashboardRef.current = refreshDashboard;
+
+  // --- Main effect: only depends on config ---
   useEffect(() => {
     console.log(`📊 Dashboard data hook initializing at ${new Date().toLocaleTimeString()}`);
-    
-    // Force an immediate refresh on mount (this includes server recalculation)
-    console.log('🔄 Triggering initial server-side refresh...');
-    refreshDashboard(true).then(success => {
+    // Use refs to call the latest version
+    refreshDashboardRef.current(true).then(success => {
       console.log(`Initial dashboard refresh ${success ? 'succeeded' : 'failed'}`);
-      
-      // If server refresh fails, try a direct fetch
       if (!success) {
-        console.log('🔄 Falling back to direct data fetch...');
-        fetchDashboardData(true);
+        fetchDashboardDataRef.current(true);
       }
     });
-    
-    // Set up periodic refresh if autoRefresh is enabled
     let refreshTimer = null;
-    
     if (autoRefresh && refreshInterval > 0) {
-      console.log(`🔄 Setting up auto-refresh every ${refreshInterval/1000} seconds`);
-      
-      // Set up the regular interval for data fetching
-      // We no longer need the initial fast fetch as we already did a refresh on mount
       refreshTimer = setInterval(() => {
         if (!isRefreshing) {
-          console.log(`⏱️ Auto-refresh triggered at ${new Date().toLocaleTimeString()}`);
-          fetchDashboardData(); // Regular fetch, not forced
-        } else {
-          console.log('⏱️ Skipping auto-refresh because a refresh is already in progress');
+          fetchDashboardDataRef.current();
         }
       }, refreshInterval);
     }
-    
-    // Set up a forced full refresh every 3 minutes to ensure data stays fresh
-    // Changed from every minute to every 3 minutes to reduce server load
     const forcedRefreshTimer = setInterval(() => {
       if (!isRefreshing) {
-        console.log('🔄 Forced server refresh triggered (every 3 minutes)');
-        refreshDashboard(); // Regular refresh, not forced
-      } else {
-        console.log('🔄 Skipping forced refresh because a refresh is already in progress');
+        refreshDashboardRef.current();
       }
-    }, 180000); // 3 minutes instead of 1 minute
-    
-    // Clean up timers on unmount
+    }, 180000);
     return () => {
-      if (refreshTimer) {
-        console.log('🧹 Cleaning up auto-refresh timer');
-        clearInterval(refreshTimer);
-      }
-      
-      console.log('🧹 Cleaning up forced refresh timer');
+      if (refreshTimer) clearInterval(refreshTimer);
       clearInterval(forcedRefreshTimer);
     };
-  }, [refreshDashboard, fetchDashboardData, autoRefresh, refreshInterval, isRefreshing]);
+  }, [autoRefresh, refreshInterval]);
   
   // Log refresh statistics when refreshCount changes
   useEffect(() => {

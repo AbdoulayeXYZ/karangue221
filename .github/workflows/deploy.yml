@@ -1,0 +1,217 @@
+name: Deploy Karangué221 to AWS
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REPOSITORY_FRONTEND: karangue221/frontend
+  ECR_REPOSITORY_BACKEND: karangue221/backend
+
+jobs:
+  # Test Job
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: rootpassword
+          MYSQL_DATABASE: karangue221_test
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: --health-cmd="redis-cli ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: |
+          backend/package-lock.json
+          frontend/package-lock.json
+
+    - name: Install backend dependencies
+      run: |
+        cd backend
+        npm ci
+
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        npm ci
+
+    - name: Run backend tests
+      env:
+        NODE_ENV: test
+        DB_HOST: localhost
+        DB_PORT: 3306
+        DB_NAME: karangue221_test
+        DB_USER: root
+        DB_PASSWORD: rootpassword
+        REDIS_HOST: localhost
+        REDIS_PORT: 6379
+        JWT_SECRET: test-secret
+      run: |
+        cd backend
+        npm test
+
+    - name: Run frontend tests
+      run: |
+        cd frontend
+        npm test -- --coverage --watchAll=false
+
+    - name: Lint code
+      run: |
+        cd backend && npm run lint || true
+        cd ../frontend && npm run lint || true
+
+  # Build and Deploy Job
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Determine environment
+      id: env
+      run: |
+        if [[ ${{ github.ref }} == 'refs/heads/main' ]]; then
+          echo "environment=production" >> $GITHUB_OUTPUT
+          echo "cluster_name=karangue221-production" >> $GITHUB_OUTPUT
+        else
+          echo "environment=staging" >> $GITHUB_OUTPUT
+          echo "cluster_name=karangue221-staging" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Build and push backend image
+      id: build-backend
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        cd backend
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG
+        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    - name: Build and push frontend image
+      id: build-frontend
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        cd frontend
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG
+        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    - name: Create backend task definition
+      id: backend-task-def
+      uses: aws-actions/amazon-ecs-render-task-definition@v1
+      with:
+        task-definition: .aws/task-definitions/backend.json
+        container-name: backend
+        image: ${{ steps.build-backend.outputs.image }}
+
+    - name: Create frontend task definition
+      id: frontend-task-def
+      uses: aws-actions/amazon-ecs-render-task-definition@v1
+      with:
+        task-definition: .aws/task-definitions/frontend.json
+        container-name: frontend
+        image: ${{ steps.build-frontend.outputs.image }}
+
+    - name: Deploy backend to ECS
+      uses: aws-actions/amazon-ecs-deploy-service@v1
+      with:
+        service: karangue221-backend-${{ steps.env.outputs.environment }}
+        cluster: ${{ steps.env.outputs.cluster_name }}
+        wait-for-service-stability: true
+        task-definition: ${{ steps.backend-task-def.outputs.task-definition }}
+
+    - name: Deploy frontend to ECS
+      uses: aws-actions/amazon-ecs-deploy-service@v1
+      with:
+        service: karangue221-frontend-${{ steps.env.outputs.environment }}
+        cluster: ${{ steps.env.outputs.cluster_name }}
+        wait-for-service-stability: true
+        task-definition: ${{ steps.frontend-task-def.outputs.task-definition }}
+
+    - name: Post-deployment health check
+      run: |
+        echo "Waiting for services to be healthy..."
+        sleep 60
+        
+        # Get ALB DNS name from AWS
+        ALB_DNS=$(aws elbv2 describe-load-balancers \
+          --names karangue221-alb-${{ steps.env.outputs.environment }} \
+          --query 'LoadBalancers[0].DNSName' \
+          --output text)
+        
+        # Health check
+        curl -f http://$ALB_DNS/api/health || exit 1
+        curl -f http://$ALB_DNS/health || exit 1
+        
+        echo "Deployment successful! 🚀"
+        echo "Application available at: http://$ALB_DNS"
+
+  # Rollback Job (manual trigger)
+  rollback:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Rollback ECS services
+      run: |
+        # Get previous task definition
+        BACKEND_TASK_DEF=$(aws ecs describe-services \
+          --cluster karangue221-production \
+          --services karangue221-backend-production \
+          --query 'services[0].taskDefinition' \
+          --output text)
+        
+        FRONTEND_TASK_DEF=$(aws ecs describe-services \
+          --cluster karangue221-production \
+          --services karangue221-frontend-production \
+          --query 'services[0].taskDefinition' \
+          --output text)
+        
+        echo "Rolling back to previous task definitions..."
+        echo "Backend: $BACKEND_TASK_DEF"
+        echo "Frontend: $FRONTEND_TASK_DEF"
